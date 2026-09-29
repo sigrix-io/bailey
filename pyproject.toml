@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bailey"
+version = "0.0.1"
+description = "An open-source AI assistant that runs ready-made solutions on your own machine, with your own AI key. This first release ships `bailey doctor`."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.11"
+authors = [{ name = "Sigrix" }]
+keywords = ["ai", "assistant", "agent", "mcp", "agent-skills", "rag", "local-first"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+# Nothing yet. The doctor is the standard library, so `uvx bailey doctor`
+# installs one package. The assistant's own dependencies arrive with 0.1.
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+bailey = "bailey.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/sigrix-io/bailey"
+Issues = "https://github.com/sigrix-io/bailey/issues"
+Changelog = "https://github.com/sigrix-io/bailey/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bailey"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/bailey", "tests", "README.md", "LICENSE", "NOTICE", "CHANGELOG.md"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S603"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
