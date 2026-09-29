@@ -1,0 +1,41 @@
+name: Defect
+description: The doctor misreads a real machine, or says something wrong about what it found.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        The doctor reads this machine and nothing else: no network call, no
+        file written, no environment variable printed. Its answers do include
+        where it found `uv` and `npx`, and a path under your home folder
+        carries your user name; edit that out if you would rather. If you find
+        anything secret in the output, that is a vulnerability: email
+        security@sigrix.io instead of filing it here.
+  - type: textarea
+    id: output
+    attributes:
+      label: What `bailey doctor --json` printed
+      description: >-
+        The JSON answers are what a test can be written from. The plain output
+        is fine too, if that is what you have.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What was actually there
+      description: >-
+        Which check is wrong, and how you know: the Python build and where it
+        came from, what `sqlite3` reports, the installer that put `uv` or Node
+        on the machine.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: bailey, how you ran it (uvx, pipx or pip), Python, and the operating system.
+      placeholder: "bailey 0.0.1, uvx, Python 3.12 from python.org, macOS 15"
+    validations:
+      required: true

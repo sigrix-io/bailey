@@ -6,6 +6,14 @@ described in `VERSIONING.md`.
 
 ## [Unreleased]
 
+### Added
+
+- `CODE_OF_CONDUCT.md`, issue forms and a pull request template, the set the
+  other open repositories carry. Blank issues are off: a report is a defect or
+  a change, and the links beside the forms send a security report to
+  security@sigrix.io and a conduct concern to conduct@sigrix.io. Nothing in
+  the package changes.
+
 ### Changed
 
 - Every GitHub Action the workflows run is pinned to a commit, with its release
