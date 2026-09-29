@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -24,15 +28,26 @@ jobs:
           - os: windows-latest
             python-version: "3.13"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # Checks out, installs the Python and pip-installs `-e .[dev]`, with the
+      # upstream actions pinned once in sigrix-io/actions rather than here.
+      - uses: sigrix-io/actions/setup-python-project@765103f1c9d89e019dcaea72a78eed2577b30ae1 # v1.0.0
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install
-        run: python -m pip install --upgrade pip && pip install -e ".[dev]"
       - name: Lint
         run: ruff check . && ruff format --check .
       - name: Test
         run: pytest -q
       - name: The console script answers
         run: bailey --version && bailey doctor
+
+  # The aggregate gate. One check to require on main, so adding a job or an
+  # operating system above does not mean editing the branch ruleset to match.
+  ci-passed:
+    if: always()
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job succeeded
+        run: |
+          echo '${{ toJSON(needs) }}'
+          [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "false" ]
