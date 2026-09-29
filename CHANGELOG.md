@@ -6,7 +6,7 @@ described in `VERSIONING.md`.
 
 ## [Unreleased]
 
-## [0.0.1]
+## [0.0.1] — 2026-09-29
 
 First release: the name, and a way to check a machine before the assistant
 arrives.
