@@ -24,6 +24,10 @@ described in `VERSIONING.md`.
 
 ### Changed
 
+- Dependabot opens one pull request per ecosystem instead of one per
+  dependency. The branch ruleset only merges a pull request that is up to date
+  with `main`, so each separate update merged put every other one behind.
+  Nothing in the package changes.
 - Every GitHub Action the workflows run is pinned to a commit, with its release
   named beside it, and Dependabot keeps those pins and the dev tools current.
   CI ends in one `ci-passed` job for the branch ruleset to require. Nothing in
