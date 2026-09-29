@@ -30,6 +30,7 @@ dependencies = []
 dev = [
     "pytest>=8",
     "ruff>=0.6",
+    "mypy==2.3.1",
 ]
 
 [project.scripts]
@@ -59,6 +60,15 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "S603"]
+
+# py.typed ships in the wheel, which tells every consumer's type checker to
+# trust these annotations, so they are checked as strictly as the other Sigrix
+# packages check theirs.
+[tool.mypy]
+strict = true
+python_version = "3.11"
+files = ["src/bailey"]
+mypy_path = "src"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

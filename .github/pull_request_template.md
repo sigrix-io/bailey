@@ -29,5 +29,6 @@ what you broke and which test caught it.
 - [ ] `pytest`
 - [ ] `ruff check .`
 - [ ] `ruff format --check .`
+- [ ] `mypy`
 - [ ] Still the standard library only, with no network call and no file written
 - [ ] `CHANGELOG.md` has a line under *Unreleased*

@@ -40,11 +40,19 @@ jobs:
       - name: The console script answers
         run: bailey --version && bailey doctor
 
+  # py.typed ships in the wheel, which tells every consumer's type checker to
+  # trust these annotations. Strict, as pyproject.toml configures it.
+  types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: sigrix-io/actions/setup-python-project@765103f1c9d89e019dcaea72a78eed2577b30ae1 # v1.0.0
+      - run: python -m mypy
+
   # The aggregate gate. One check to require on main, so adding a job or an
   # operating system above does not mean editing the branch ruleset to match.
   ci-passed:
     if: always()
-    needs: [test]
+    needs: [test, types]
     runs-on: ubuntu-latest
     steps:
       - name: Every job succeeded

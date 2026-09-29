@@ -36,6 +36,28 @@ jobs:
         run: |
           version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           test "v$version" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != v$version"; exit 1; }
+      # The checks the verify job runs against PyPI after the upload, run here
+      # against the wheel before it. A PyPI version can never be reused, so this
+      # is the cheap place to find a stale __version__ or a missing py.typed.
+      # From /tmp, so nothing in the checkout can satisfy the import.
+      - name: The wheel installs, reports the tag's version and carries py.typed
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/wheelcheck
+          /tmp/wheelcheck/bin/python -m pip install --quiet dist/*.whl
+          cd /tmp
+          VERSION="${GITHUB_REF_NAME#v}" /tmp/wheelcheck/bin/python - <<'PY'
+          import os
+          import pathlib
+
+          import bailey
+
+          root = pathlib.Path(bailey.__file__).parent
+          assert "site-packages" in str(root), root
+          assert bailey.__version__ == os.environ["VERSION"], bailey.__version__
+          assert (root / "py.typed").exists(), "py.typed is not in the wheel"
+          print("bailey", bailey.__version__, "installs and carries py.typed")
+          PY
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
@@ -54,3 +76,36 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  # An upload that succeeds is not the same as a package anyone can install,
+  # and the two look identical from the publish step. Install by name from the
+  # index the upload just went to, the way `uvx bailey` does.
+  verify:
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - id: tag
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Waits out the index, installs that exact version, and checks it is that
+      # version, from site-packages, carrying py.typed.
+      - id: published
+        uses: sigrix-io/actions/verify-published-package@765103f1c9d89e019dcaea72a78eed2577b30ae1 # v1.0.0
+        with:
+          package: bailey
+          version: ${{ steps.tag.outputs.version }}
+          import-name: bailey
+
+      # What this package claims about itself, against the environment the
+      # action installed into: the `bailey` command is in the published
+      # distribution, and answers with this version.
+      - name: The published console script answers with this version
+        env:
+          PUBLISHED_PYTHON: ${{ steps.published.outputs.python }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd /tmp
+          said="$("$(dirname "$PUBLISHED_PYTHON")/bailey" --version)"
+          echo "$said"
+          test "$said" = "bailey $VERSION"
