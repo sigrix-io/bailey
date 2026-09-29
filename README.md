@@ -46,7 +46,7 @@ It exits 1 when a required check fails, and `bailey doctor --json` prints the sa
 
 ```sh
 pip install -e ".[dev]"
-ruff check . && ruff format --check . && pytest
+ruff check . && ruff format --check . && mypy && pytest
 ```
 
 ## Licence

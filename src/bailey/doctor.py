@@ -43,7 +43,7 @@ class Check:
         return asdict(self)
 
 
-def check_python(version_info: Sequence[int] = sys.version_info) -> Check:
+def check_python(version_info: Sequence[int] = sys.version_info[:3]) -> Check:
     ok = tuple(version_info[:2]) >= MINIMUM_PYTHON
     return Check(
         name="Python",

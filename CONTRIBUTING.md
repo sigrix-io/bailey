@@ -23,7 +23,7 @@ command, `bailey doctor`; the assistant itself is being built toward 0.1.
 ```sh
 python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
-ruff check . && ruff format --check . && pytest
+ruff check . && ruff format --check . && mypy && pytest
 ```
 
 Each check takes what it probes as an argument, so a test can hand it a

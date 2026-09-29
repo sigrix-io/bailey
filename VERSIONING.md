@@ -29,7 +29,8 @@ assume:
 2. In this repository's settings, an **environment named `pypi`**. The
    publisher's claim names it, so a workflow running outside it is refused.
 
-Then:
+The version lives in two places, `pyproject.toml` and `src/bailey/__init__.py`;
+move both, and `tests/test_package_metadata.py` fails while they differ. Then:
 
 ```sh
 git tag v0.0.1 && git push origin v0.0.1
@@ -37,3 +38,8 @@ git tag v0.0.1 && git push origin v0.0.1
 
 Allow about ten minutes after the upload before expecting `uvx bailey` to
 resolve the new version: that is the index CDN's cache, not a failed publish.
+The release's `verify` job waits it out, installs the new version from PyPI by
+name, and fails the run if that never arrives, reports another version, lacks
+`py.typed`, or its `bailey` command does not answer with that version. The
+build job runs the same checks against the wheel before the upload, because a
+version on PyPI can never be reused.
