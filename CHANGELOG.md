@@ -6,6 +6,13 @@ described in `VERSIONING.md`.
 
 ## [Unreleased]
 
+### Changed
+
+- Every GitHub Action the workflows run is pinned to a commit, with its release
+  named beside it, and Dependabot keeps those pins and the dev tools current.
+  CI ends in one `ci-passed` job for the branch ruleset to require. Nothing in
+  the package changes.
+
 ## [0.0.1] — 2026-09-29
 
 First release: the name, and a way to check a machine before the assistant
