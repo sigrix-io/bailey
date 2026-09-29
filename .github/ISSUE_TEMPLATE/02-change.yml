@@ -1,0 +1,31 @@
+name: Change
+description: A check the doctor should make, a clearer message, or something for the assistant to come.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Today Bailey is one command, `bailey doctor`; the assistant arrives in
+        0.1. The doctor reads this machine and nothing else and depends only on
+        the standard library, so a check that reaches the network, writes a
+        file or reads a secret does not fit. See
+        [CONTRIBUTING.md](https://github.com/sigrix-io/bailey/blob/main/CONTRIBUTING.md).
+  - type: textarea
+    id: problem
+    attributes:
+      label: What goes wrong today
+      description: >-
+        Describe the situation, not the feature: what you were setting up, what
+        the doctor said or missed, and what that cost you.
+    validations:
+      required: true
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part is this about?
+      options:
+        - "`bailey doctor`, as it is now"
+        - The assistant planned for 0.1
+        - Not sure
+    validations:
+      required: true

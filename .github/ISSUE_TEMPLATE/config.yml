@@ -1,0 +1,18 @@
+# The two forms alongside this file are the two kinds of report CONTRIBUTING.md
+# treats differently: a check the doctor gets wrong, and a change. A blank
+# issue would let that sorting be skipped.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/sigrix-io/bailey/security/policy
+    about: >-
+      Do not open a public issue. Email security@sigrix.io, acknowledged within
+      three working days. SECURITY.md also lists the rules the assistant is
+      being built to; a report that one is broken is welcome from the first
+      version that carries it.
+  - name: Raise a code of conduct concern
+    url: https://github.com/sigrix-io/bailey/blob/main/CODE_OF_CONDUCT.md
+    about: >-
+      Email conduct@sigrix.io. A different address and a different queue from
+      security reports; neither is a fallback for the other.
