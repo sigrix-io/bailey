@@ -8,6 +8,14 @@ described in `VERSIONING.md`.
 
 ### Added
 
+- The solution format, published: `schemas/0.1/assistant.schema.json` is the schema for
+  `assistant.json`, the document that says how a solution's parts fit together, with its
+  `$id` at `https://sigrix.io/schemas/bailey/0.1/assistant.schema.json`.
+  `schemas/README.md` gives the rules a schema cannot express and what a reader does with
+  a version it does not know. `schemas/0.1/assistant.cases.json` is the table of valid and
+  invalid documents that the tests run, and that a repository vendoring the schema runs
+  too. The tests need `jsonschema`, a development dependency; the package still installs
+  nothing beyond the standard library.
 - The package is typed: it ships `py.typed`, so a type checker reads its
   annotations, and CI checks them with `mypy --strict`. To pass, the doctor's
   Python check defaults to `sys.version_info[:3]`, the three numbers it reads;
