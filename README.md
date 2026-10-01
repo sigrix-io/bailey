@@ -1,5 +1,10 @@
 # Bailey
 
+[![PyPI](https://img.shields.io/pypi/v/bailey)](https://pypi.org/project/bailey/)
+[![Python](https://img.shields.io/pypi/pyversions/bailey)](https://pypi.org/project/bailey/)
+[![CI](https://github.com/sigrix-io/bailey/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sigrix-io/bailey/actions/workflows/ci.yml)
+[![Licence](https://img.shields.io/github/license/sigrix-io/bailey)](https://github.com/sigrix-io/bailey/blob/main/LICENSE)
+
 An open-source AI assistant that runs ready-made solutions: on your own machine, with your own AI key.
 
 > **Early days.** This is release 0.0.1. It installs one command, `bailey doctor`, which checks that your computer has what the assistant will need. The assistant itself arrives in 0.1.
@@ -41,6 +46,15 @@ It exits 1 when a required check fails, and `bailey doctor --json` prints the sa
 
 - **0.1: the app.** Chat, assistants, skills loaded when needed, tools with approval, knowledge from your own documents with citations, apps, and installing a solution from a file.
 - **0.2: the store.** Sign in, browse, install and update solutions, and publish your own.
+
+## Where it fits
+
+Bailey is one of the open-source projects [Sigrix](https://sigrix.io) publishes, and the one the solutions sold there are built for. A solution's apps build on two of the others:
+
+- **[Postern](https://github.com/sigrix-io/postern)**, the open protocol the apps speak: four HTTP verbs an agent serves, and the licence check the packaging standards leave out.
+- **[Gatehouse](https://github.com/sigrix-io/gatehouse)**, the page a person runs an agent from in the browser, for any runner that serves those verbs. The app planned for 0.1 draws a solution's apps with it.
+
+Every project Sigrix publishes, and a map of how they connect: [sigrix.io/open-source](https://sigrix.io/open-source).
 
 ## Development
 

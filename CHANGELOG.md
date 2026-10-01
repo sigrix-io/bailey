@@ -24,6 +24,11 @@ described in `VERSIONING.md`.
 
 ### Changed
 
+- The README opens with badges for the PyPI release, the Python versions, CI
+  and the licence, and a new *Where it fits* section names the projects a
+  solution's apps meet: Postern, which they speak, and Gatehouse, which the
+  app planned for 0.1 draws them with. The README is the PyPI page too, so the
+  next release carries it there. Nothing `bailey doctor` reports changes.
 - Dependabot opens one pull request per ecosystem instead of one per
   dependency. The branch ruleset only merges a pull request that is up to date
   with `main`, so each separate update merged put every other one behind.
