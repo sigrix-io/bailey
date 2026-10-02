@@ -42,6 +42,10 @@ uvx bailey doctor
 
 It exits 1 when a required check fails, and `bailey doctor --json` prints the same answers for a script. It reads your machine only: no network call, no file written.
 
+## The solution format
+
+A solution is an Agent Plugins folder plus one file, `assistant.json`, which says how its parts fit together: which skill holds the instructions, which skills load when needed, which tools write, and which documents to ask you for. Its schema is published in [`schemas/`](schemas/README.md), so anyone can build a solution Bailey runs.
+
 ## What comes next
 
 - **0.1: the app.** Chat, assistants, skills loaded when needed, tools with approval, knowledge from your own documents with citations, apps, and installing a solution from a file.

@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sigrix.io/schemas/bailey/0.1/assistant.schema.json",
+  "title": "Solution document (assistant.json), format 0.1",
+  "description": "How a solution's parts fit together. A solution is an Agent Plugins v1.0.0 plugin whose plugin.json names this file in extensions[\"org.sigrix\"].assistant; Bailey reads it to install and run the solution, and any builder may write it. This schema is the writer's contract: a document a writer emits validates against it. A reader is wider, as schemas/README.md says: it ignores a member it does not know and refuses a major version it does not know. Every path is relative to the plugin's root, uses forward slashes, and names a file the plugin carries.",
+  "type": "object",
+  "required": ["format_version", "name", "title", "instructions"],
+  "additionalProperties": false,
+  "properties": {
+    "format_version": {
+      "const": "0.1",
+      "description": "The format this document is written in, as MAJOR.MINOR. A minor version only adds optional members, so a reader that knows the major reads the document by ignoring what it does not know. A change a reader cannot ignore moves the major, and a reader refuses a major it does not know."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^(?!.*(?:--|\\.\\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$",
+      "description": "The plugin's name, equal to plugin.json's name, in the Agent Plugins v1.0.0 name grammar."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The name a person sees, such as \"Shop Support\"."
+    },
+    "description": {
+      "type": "string",
+      "description": "One or two sentences on the job the solution does. Absent and empty both mean there is none."
+    },
+    "instructions": {
+      "$ref": "#/$defs/skill_path",
+      "description": "The skill holding the assistant's own instructions. A client keeps its body in context from the first message, where the skills in skills load when they are needed. It is not also listed in skills."
+    },
+    "persona": {
+      "$ref": "#/$defs/file_path",
+      "description": "A Markdown file holding the voice the assistant answers in, kept in context with the instructions. A writer may instead open the instructions with the voice, and then leaves this member out."
+    },
+    "starters": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Messages a client may offer to start a conversation with, in the order given."
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/skill"
+      },
+      "description": "The Agent Skills the plugin carries besides the instructions. A client loads a skill's body when the conversation needs it."
+    },
+    "skills_sold_separately": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The names of skills the assistant uses that the plugin does not carry, which the person obtains on their own. A client may say so at install, and the assistant works without them."
+    },
+    "mcp": {
+      "$ref": "#/$defs/file_path",
+      "description": "The plugin's MCP configuration, mcp.json in the Agent Plugins layout. Absent when the assistant uses no MCP server."
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/server"
+      },
+      "description": "For each server in the MCP configuration, keyed by its name there, the tools the writer declared and which of them write. A client asks before a write, and treats as a write any tool missing from its server's declaration, and every tool of a server missing from this map."
+    },
+    "examples": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/example"
+      },
+      "description": "Inputs the assistant is meant to handle, each with the answer it should give when the writer has one. A client may run them to check an install."
+    },
+    "knowledge": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/knowledge_slot"
+      },
+      "description": "The documents the solution asks the person for, its knowledge slots, which a client asks for at install the way it asks for keys. The documents stay on the person's machine and never go into a package."
+    }
+  },
+  "$defs": {
+    "skill_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$",
+      "not": {
+        "pattern": "anthropic|claude"
+      },
+      "description": "An Agent Skills name: lowercase letters, digits and hyphens, neither starting nor ending with a hyphen, and without the words anthropic or claude, which clients reserve."
+    },
+    "skill_path": {
+      "type": "string",
+      "pattern": "^skills/[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?/SKILL\\.md$",
+      "not": {
+        "pattern": "anthropic|claude"
+      },
+      "description": "A skill's SKILL.md in the Agent Plugins layout, skills/<name>/SKILL.md, where <name> is the name in its frontmatter and so follows skill_name."
+    },
+    "file_path": {
+      "type": "string",
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]*(?:/[A-Za-z0-9_][A-Za-z0-9._-]*)*$",
+      "description": "A file inside the plugin: relative, with forward slashes, and with no segment that starts with a dot, so no path climbs out of the plugin or names a hidden file."
+    },
+    "skill": {
+      "type": "object",
+      "required": ["name", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/skill_name"
+        },
+        "path": {
+          "$ref": "#/$defs/skill_path",
+          "description": "skills/<name>/SKILL.md for this entry's name."
+        }
+      }
+    },
+    "tool_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "A tool's name as its MCP server lists it."
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tools": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/tool_name"
+          },
+          "description": "The server's tools the writer declared."
+        },
+        "write_tools": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/tool_name"
+          },
+          "description": "The declared tools that change something outside the conversation. Each is also in tools."
+        }
+      }
+    },
+    "example": {
+      "type": "object",
+      "required": ["input"],
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the person sends."
+        },
+        "output": {
+          "type": "string",
+          "description": "An answer of the kind the assistant should give. Absent and empty both mean the writer gave none."
+        }
+      }
+    },
+    "knowledge_slot": {
+      "type": "object",
+      "required": ["name", "description", "accepts"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "The slot's name, unique in this document, such as refund_policy."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the person should supply, in words they would use."
+        },
+        "accepts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]{1,16}$"
+          },
+          "description": "The file extensions the slot takes, lowercase and without the dot, such as pdf or csv."
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether the solution needs the document before it runs. Absent means false."
+        }
+      }
+    }
+  }
+}

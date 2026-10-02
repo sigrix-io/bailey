@@ -31,6 +31,9 @@ dev = [
     "pytest>=8",
     "ruff>=0.6",
     "mypy==2.3.1",
+    # Validates the solution format's schema and its case table in the tests.
+    # A development tool only: the package itself stays the standard library.
+    "jsonschema>=4.23",
 ]
 
 [project.scripts]
@@ -45,7 +48,7 @@ Changelog = "https://github.com/sigrix-io/bailey/blob/main/CHANGELOG.md"
 packages = ["src/bailey"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/bailey", "tests", "README.md", "LICENSE", "NOTICE", "CHANGELOG.md"]
+include = ["src/bailey", "schemas", "tests", "README.md", "LICENSE", "NOTICE", "CHANGELOG.md"]
 # The pin guard reads .github/workflows, which the sdist does not carry: it
 # checks the repository, not the package.
 exclude = ["tests/test_workflow_pins.py"]

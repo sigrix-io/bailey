@@ -1,0 +1,322 @@
+{
+  "$comment": "The cases every implementation of assistant.schema.json 0.1 agrees on. Each valid document validates. Each invalid one is a valid document with exactly one change, an RFC 6902 add, replace or remove, so it fails for that change and nothing else. Bailey runs this table against the schema with jsonschema; a repository that vendors the schema runs the same table with its own validator, so the two cannot quietly disagree about what the format allows. schemas/README.md describes the table.",
+  "schema": "https://sigrix.io/schemas/bailey/0.1/assistant.schema.json",
+  "valid": [
+    {
+      "name": "the least a writer may emit",
+      "document": {
+        "format_version": "0.1",
+        "name": "shop-support",
+        "title": "Shop Support",
+        "instructions": "skills/shop-support/SKILL.md"
+      }
+    },
+    {
+      "name": "an assistant with no skill and no tool, every list written out empty",
+      "document": {
+        "format_version": "0.1",
+        "name": "shop-support",
+        "title": "Shop Support",
+        "description": "",
+        "instructions": "skills/shop-support/SKILL.md",
+        "skills": [],
+        "skills_sold_separately": [],
+        "tools": {},
+        "examples": []
+      }
+    },
+    {
+      "name": "an assistant with its own skill, another sold separately, and a tool that writes",
+      "document": {
+        "format_version": "0.1",
+        "name": "shop-support",
+        "title": "Shop Support",
+        "description": "Drafts replies to customer emails.",
+        "instructions": "skills/shop-support/SKILL.md",
+        "skills": [
+          {
+            "name": "brand-voice",
+            "path": "skills/brand-voice/SKILL.md"
+          }
+        ],
+        "skills_sold_separately": ["refund-policy"],
+        "tools": {
+          "gmail": {
+            "tools": ["search_threads", "create_draft"],
+            "write_tools": ["create_draft"]
+          }
+        },
+        "examples": [
+          {
+            "input": "Where is my order?",
+            "output": "It ships on Friday."
+          }
+        ],
+        "mcp": "mcp.json"
+      }
+    },
+    {
+      "name": "every member",
+      "document": {
+        "format_version": "0.1",
+        "name": "shop-support",
+        "title": "Shop Support",
+        "description": "Drafts replies to customer emails.",
+        "instructions": "skills/shop-support/SKILL.md",
+        "persona": "persona.md",
+        "starters": ["Draft a reply to the latest refund request.", "Which orders are late?"],
+        "skills": [
+          {
+            "name": "brand-voice",
+            "path": "skills/brand-voice/SKILL.md"
+          }
+        ],
+        "skills_sold_separately": ["refund-policy"],
+        "mcp": "mcp.json",
+        "tools": {
+          "gmail": {
+            "tools": ["search_threads", "create_draft"],
+            "write_tools": ["create_draft"]
+          }
+        },
+        "examples": [
+          {
+            "input": "Where is my order?",
+            "output": "It ships on Friday."
+          }
+        ],
+        "knowledge": [
+          {
+            "name": "refund_policy",
+            "description": "Your refund and returns policy",
+            "accepts": ["pdf", "docx", "md"],
+            "required": true
+          },
+          {
+            "name": "product_catalog",
+            "description": "A CSV export of your products",
+            "accepts": ["csv"],
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "the optional halves left out",
+      "document": {
+        "format_version": "0.1",
+        "name": "shop-support",
+        "title": "Shop Support",
+        "instructions": "skills/shop-support/SKILL.md",
+        "mcp": "config/mcp.json",
+        "tools": {
+          "gmail": {}
+        },
+        "examples": [
+          {
+            "input": "Draft a reply to the latest refund request."
+          }
+        ],
+        "knowledge": [
+          {
+            "name": "refund_policy",
+            "description": "Your refund and returns policy",
+            "accepts": ["pdf"]
+          }
+        ]
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "a major version this schema is not",
+      "base": "the least a writer may emit",
+      "change": {"op": "replace", "path": "/format_version", "value": "1.0"}
+    },
+    {
+      "name": "another minor version's document",
+      "base": "the least a writer may emit",
+      "change": {"op": "replace", "path": "/format_version", "value": "0.2"}
+    },
+    {
+      "name": "the version as a number",
+      "base": "the least a writer may emit",
+      "change": {"op": "replace", "path": "/format_version", "value": 0.1}
+    },
+    {
+      "name": "no format_version",
+      "base": "the least a writer may emit",
+      "change": {"op": "remove", "path": "/format_version"}
+    },
+    {
+      "name": "no name",
+      "base": "the least a writer may emit",
+      "change": {"op": "remove", "path": "/name"}
+    },
+    {
+      "name": "no title",
+      "base": "the least a writer may emit",
+      "change": {"op": "remove", "path": "/title"}
+    },
+    {
+      "name": "no instructions",
+      "base": "the least a writer may emit",
+      "change": {"op": "remove", "path": "/instructions"}
+    },
+    {
+      "name": "a name outside the plugin name grammar",
+      "base": "the least a writer may emit",
+      "change": {"op": "replace", "path": "/name", "value": "Shop Support"}
+    },
+    {
+      "name": "an empty title",
+      "base": "the least a writer may emit",
+      "change": {"op": "replace", "path": "/title", "value": ""}
+    },
+    {
+      "name": "instructions that are not a skill",
+      "base": "the least a writer may emit",
+      "change": {"op": "replace", "path": "/instructions", "value": "AGENTS.md"}
+    },
+    {
+      "name": "instructions as an absolute path",
+      "base": "the least a writer may emit",
+      "change": {"op": "replace", "path": "/instructions", "value": "/skills/shop-support/SKILL.md"}
+    },
+    {
+      "name": "instructions climbing out of skills/",
+      "base": "the least a writer may emit",
+      "change": {"op": "replace", "path": "/instructions", "value": "skills/../SKILL.md"}
+    },
+    {
+      "name": "instructions in a folder named with a reserved word",
+      "base": "the least a writer may emit",
+      "change": {"op": "replace", "path": "/instructions", "value": "skills/claude-helper/SKILL.md"}
+    },
+    {
+      "name": "a member this format does not have",
+      "base": "the least a writer may emit",
+      "change": {"op": "add", "path": "/version", "value": "1.3.0"}
+    },
+    {
+      "name": "a skill without its path",
+      "base": "an assistant with its own skill, another sold separately, and a tool that writes",
+      "change": {"op": "remove", "path": "/skills/0/path"}
+    },
+    {
+      "name": "a skill without its name",
+      "base": "an assistant with its own skill, another sold separately, and a tool that writes",
+      "change": {"op": "remove", "path": "/skills/0/name"}
+    },
+    {
+      "name": "a skill name with a capital letter",
+      "base": "an assistant with its own skill, another sold separately, and a tool that writes",
+      "change": {"op": "replace", "path": "/skills/0/name", "value": "Brand-voice"}
+    },
+    {
+      "name": "a skill name with a reserved word",
+      "base": "an assistant with its own skill, another sold separately, and a tool that writes",
+      "change": {"op": "replace", "path": "/skills/0/name", "value": "anthropic-voice"}
+    },
+    {
+      "name": "a skill entry with a member it does not have",
+      "base": "an assistant with its own skill, another sold separately, and a tool that writes",
+      "change": {"op": "add", "path": "/skills/0/description", "value": "Write in the shop's voice."}
+    },
+    {
+      "name": "an empty name among the skills sold separately",
+      "base": "an assistant with its own skill, another sold separately, and a tool that writes",
+      "change": {"op": "replace", "path": "/skills_sold_separately/0", "value": ""}
+    },
+    {
+      "name": "tools as a list rather than a map",
+      "base": "an assistant with its own skill, another sold separately, and a tool that writes",
+      "change": {"op": "replace", "path": "/tools", "value": ["gmail"]}
+    },
+    {
+      "name": "a server entry with a member it does not have",
+      "base": "an assistant with its own skill, another sold separately, and a tool that writes",
+      "change": {"op": "add", "path": "/tools/gmail/read_tools", "value": ["search_threads"]}
+    },
+    {
+      "name": "write_tools that is not a list",
+      "base": "an assistant with its own skill, another sold separately, and a tool that writes",
+      "change": {"op": "replace", "path": "/tools/gmail/write_tools", "value": "create_draft"}
+    },
+    {
+      "name": "a tool declared twice",
+      "base": "an assistant with its own skill, another sold separately, and a tool that writes",
+      "change": {"op": "replace", "path": "/tools/gmail/tools", "value": ["search_threads", "search_threads"]}
+    },
+    {
+      "name": "an example with no input",
+      "base": "an assistant with its own skill, another sold separately, and a tool that writes",
+      "change": {"op": "remove", "path": "/examples/0/input"}
+    },
+    {
+      "name": "an example with an empty input",
+      "base": "an assistant with its own skill, another sold separately, and a tool that writes",
+      "change": {"op": "replace", "path": "/examples/0/input", "value": ""}
+    },
+    {
+      "name": "an MCP configuration outside the plugin",
+      "base": "an assistant with its own skill, another sold separately, and a tool that writes",
+      "change": {"op": "replace", "path": "/mcp", "value": "../mcp.json"}
+    },
+    {
+      "name": "the MCP configuration Claude Code reads rather than the plugin's",
+      "base": "an assistant with its own skill, another sold separately, and a tool that writes",
+      "change": {"op": "replace", "path": "/mcp", "value": ".mcp.json"}
+    },
+    {
+      "name": "a persona path with a backslash",
+      "base": "every member",
+      "change": {"op": "replace", "path": "/persona", "value": "docs\\persona.md"}
+    },
+    {
+      "name": "an empty starter",
+      "base": "every member",
+      "change": {"op": "replace", "path": "/starters/0", "value": ""}
+    },
+    {
+      "name": "a knowledge slot that accepts nothing",
+      "base": "every member",
+      "change": {"op": "replace", "path": "/knowledge/0/accepts", "value": []}
+    },
+    {
+      "name": "a file extension written with its dot",
+      "base": "every member",
+      "change": {"op": "replace", "path": "/knowledge/0/accepts", "value": ["pdf", ".docx"]}
+    },
+    {
+      "name": "a file extension accepted twice",
+      "base": "every member",
+      "change": {"op": "replace", "path": "/knowledge/0/accepts", "value": ["pdf", "pdf"]}
+    },
+    {
+      "name": "a knowledge slot without a description",
+      "base": "every member",
+      "change": {"op": "remove", "path": "/knowledge/0/description"}
+    },
+    {
+      "name": "a knowledge slot without a name",
+      "base": "every member",
+      "change": {"op": "remove", "path": "/knowledge/0/name"}
+    },
+    {
+      "name": "a knowledge slot without the types it accepts",
+      "base": "every member",
+      "change": {"op": "remove", "path": "/knowledge/0/accepts"}
+    },
+    {
+      "name": "a knowledge slot named in capitals",
+      "base": "every member",
+      "change": {"op": "replace", "path": "/knowledge/0/name", "value": "Refund_Policy"}
+    },
+    {
+      "name": "required written as a string",
+      "base": "every member",
+      "change": {"op": "replace", "path": "/knowledge/0/required", "value": "yes"}
+    }
+  ]
+}
