@@ -30,7 +30,7 @@ dependencies = []
 dev = [
     "pytest>=8",
     "ruff>=0.6",
-    "mypy==2.3.1",
+    "mypy==2.4.0",
     # Validates the solution format's schema and its case table in the tests.
     # A development tool only: the package itself stays the standard library.
     "jsonschema>=4.23",
