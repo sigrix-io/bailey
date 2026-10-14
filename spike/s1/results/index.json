@@ -1,0 +1,315 @@
+{
+  "versions": {
+    "markitdown": "0.1.8",
+    "fastembed": "0.9.0",
+    "onnxruntime": "1.31.0",
+    "sqlite-vec": "0.1.9",
+    "numpy": "2.5.4"
+  },
+  "sqlite": "3.45.1",
+  "python": "3.13.16",
+  "convert": {
+    "s": 5.1,
+    "by_type": {
+      ".pdf": {
+        "files": 2,
+        "seconds": 2.021,
+        "words": 8171
+      },
+      ".md": {
+        "files": 1,
+        "seconds": 0.007,
+        "words": 260
+      },
+      ".csv": {
+        "files": 1,
+        "seconds": 0.012,
+        "words": 8483
+      },
+      ".html": {
+        "files": 291,
+        "seconds": 2.523,
+        "words": 108825
+      },
+      ".docx": {
+        "files": 1,
+        "seconds": 0.222,
+        "words": 399
+      }
+    }
+  },
+  "corpus": {
+    "files": 296,
+    "words": 126138,
+    "pages_at_500_words": 252
+  },
+  "split": {
+    "s": 0.047,
+    "passages": 2496,
+    "max_words": 180,
+    "overlap": 30
+  },
+  "model": {
+    "model": "sentence-transformers/all-MiniLM-L6-v2",
+    "from": "models/minilm/onnx",
+    "load_s": 0.51
+  },
+  "variants": {
+    "with_title_and_heading": {
+      "embed_s": 49.2,
+      "passages_per_s": 50.7,
+      "index": {
+        "passages_and_fts_s": 0.08,
+        "vec0_s": 0.05,
+        "file_mb": 10.6
+      },
+      "metrics": {
+        "keywords": {
+          "hit@1": 0.7,
+          "hit@3": 0.7,
+          "hit@5": 0.9,
+          "mrr@10": 0.75
+        },
+        "vectors_sqlite_vec": {
+          "hit@1": 0.8,
+          "hit@3": 0.8,
+          "hit@5": 0.9,
+          "mrr@10": 0.82
+        },
+        "vectors_numpy": {
+          "hit@1": 0.8,
+          "hit@3": 0.8,
+          "hit@5": 0.9,
+          "mrr@10": 0.82
+        },
+        "hybrid_rrf": {
+          "hit@1": 0.9,
+          "hit@3": 0.9,
+          "hit@5": 0.9,
+          "mrr@10": 0.9
+        }
+      },
+      "first_relevant_rank": {
+        "keywords": {
+          "worn-return": null,
+          "refund-timing": 4,
+          "holiday-return": 1,
+          "label-cost": 1,
+          "gift-card": 1,
+          "eu-duties": 1,
+          "same-day": 1,
+          "zip-warranty": 4,
+          "ember-400": 1,
+          "kestrel-25l": 1
+        },
+        "vectors_sqlite_vec": {
+          "worn-return": 12,
+          "refund-timing": 1,
+          "holiday-return": 1,
+          "label-cost": 1,
+          "gift-card": 1,
+          "eu-duties": 1,
+          "same-day": 1,
+          "zip-warranty": 5,
+          "ember-400": 1,
+          "kestrel-25l": 1
+        },
+        "vectors_numpy": {
+          "worn-return": 12,
+          "refund-timing": 1,
+          "holiday-return": 1,
+          "label-cost": 1,
+          "gift-card": 1,
+          "eu-duties": 1,
+          "same-day": 1,
+          "zip-warranty": 5,
+          "ember-400": 1,
+          "kestrel-25l": 1
+        },
+        "hybrid_rrf": {
+          "worn-return": 24,
+          "refund-timing": 1,
+          "holiday-return": 1,
+          "label-cost": 1,
+          "gift-card": 1,
+          "eu-duties": 1,
+          "same-day": 1,
+          "zip-warranty": 1,
+          "ember-400": 1,
+          "kestrel-25l": 1
+        }
+      },
+      "median_query_ms": {
+        "keywords": 1.07,
+        "vectors_sqlite_vec": 3.17,
+        "vectors_numpy": 0.33,
+        "hybrid_rrf": 1.43
+      },
+      "sqlite_vec_and_numpy_agree_on_top10": true,
+      "top_cosine_similarity": {
+        "worn-return": 0.568,
+        "refund-timing": 0.565,
+        "holiday-return": 0.55,
+        "label-cost": 0.57,
+        "gift-card": 0.545,
+        "eu-duties": 0.597,
+        "same-day": 0.623,
+        "zip-warranty": 0.646,
+        "ember-400": 0.719,
+        "kestrel-25l": 0.837,
+        "e-bikes": 0.327,
+        "crypto": 0.247
+      },
+      "relevant_passages": {
+        "worn-return": 1,
+        "refund-timing": 1,
+        "holiday-return": 1,
+        "label-cost": 1,
+        "gift-card": 2,
+        "eu-duties": 1,
+        "same-day": 1,
+        "zip-warranty": 1,
+        "ember-400": 3,
+        "kestrel-25l": 4
+      }
+    },
+    "body_only": {
+      "embed_s": 41.1,
+      "passages_per_s": 60.7,
+      "index": {
+        "passages_and_fts_s": 0.05,
+        "vec0_s": 0.06,
+        "file_mb": 10.6
+      },
+      "metrics": {
+        "keywords": {
+          "hit@1": 0.7,
+          "hit@3": 0.8,
+          "hit@5": 0.8,
+          "mrr@10": 0.733
+        },
+        "vectors_sqlite_vec": {
+          "hit@1": 0.7,
+          "hit@3": 0.7,
+          "hit@5": 0.8,
+          "mrr@10": 0.754
+        },
+        "vectors_numpy": {
+          "hit@1": 0.7,
+          "hit@3": 0.7,
+          "hit@5": 0.8,
+          "mrr@10": 0.754
+        },
+        "hybrid_rrf": {
+          "hit@1": 0.8,
+          "hit@3": 0.8,
+          "hit@5": 0.8,
+          "mrr@10": 0.8
+        }
+      },
+      "first_relevant_rank": {
+        "keywords": {
+          "worn-return": null,
+          "refund-timing": 3,
+          "holiday-return": 1,
+          "label-cost": 1,
+          "gift-card": 1,
+          "eu-duties": 1,
+          "same-day": 1,
+          "zip-warranty": 46,
+          "ember-400": 1,
+          "kestrel-25l": 1
+        },
+        "vectors_sqlite_vec": {
+          "worn-return": 6,
+          "refund-timing": 1,
+          "holiday-return": 1,
+          "label-cost": 1,
+          "gift-card": 1,
+          "eu-duties": 1,
+          "same-day": 1,
+          "zip-warranty": 8,
+          "ember-400": 4,
+          "kestrel-25l": 1
+        },
+        "vectors_numpy": {
+          "worn-return": 6,
+          "refund-timing": 1,
+          "holiday-return": 1,
+          "label-cost": 1,
+          "gift-card": 1,
+          "eu-duties": 1,
+          "same-day": 1,
+          "zip-warranty": 8,
+          "ember-400": 4,
+          "kestrel-25l": 1
+        },
+        "hybrid_rrf": {
+          "worn-return": 12,
+          "refund-timing": 1,
+          "holiday-return": 1,
+          "label-cost": 1,
+          "gift-card": 1,
+          "eu-duties": 1,
+          "same-day": 1,
+          "zip-warranty": 15,
+          "ember-400": 1,
+          "kestrel-25l": 1
+        }
+      },
+      "median_query_ms": {
+        "keywords": 1.07,
+        "vectors_sqlite_vec": 3.14,
+        "vectors_numpy": 0.38,
+        "hybrid_rrf": 1.85
+      },
+      "sqlite_vec_and_numpy_agree_on_top10": true,
+      "top_cosine_similarity": {
+        "worn-return": 0.569,
+        "refund-timing": 0.552,
+        "holiday-return": 0.545,
+        "label-cost": 0.634,
+        "gift-card": 0.539,
+        "eu-duties": 0.591,
+        "same-day": 0.587,
+        "zip-warranty": 0.655,
+        "ember-400": 0.674,
+        "kestrel-25l": 0.736,
+        "e-bikes": 0.372,
+        "crypto": 0.23
+      },
+      "relevant_passages": {
+        "worn-return": 1,
+        "refund-timing": 1,
+        "holiday-return": 1,
+        "label-cost": 1,
+        "gift-card": 2,
+        "eu-duties": 1,
+        "same-day": 1,
+        "zip-warranty": 1,
+        "ember-400": 3,
+        "kestrel-25l": 4
+      }
+    }
+  },
+  "scale": {
+    "10000": {
+      "sqlite_vec_query_ms": 8.93,
+      "numpy_query_ms": 0.27,
+      "numpy_load_from_sqlite_ms": 127.5,
+      "numpy_memory_mb": 15.4
+    },
+    "50000": {
+      "sqlite_vec_query_ms": 39.24,
+      "numpy_query_ms": 2.98,
+      "numpy_load_from_sqlite_ms": 1261.7,
+      "numpy_memory_mb": 76.8
+    },
+    "100000": {
+      "sqlite_vec_query_ms": 85.96,
+      "numpy_query_ms": 5.18,
+      "numpy_load_from_sqlite_ms": 2346.6,
+      "numpy_memory_mb": 153.6
+    }
+  }
+}

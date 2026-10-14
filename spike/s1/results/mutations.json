@@ -1,0 +1,58 @@
+{
+  "write tools are not wrapped for approval": {
+    "ok": true,
+    "expected_red": [
+      "approve_inline",
+      "deny_inline",
+      "approve_after_restart",
+      "deny_after_restart"
+    ],
+    "red": [
+      "approve_after_restart",
+      "approve_inline",
+      "deny_after_restart",
+      "deny_inline"
+    ]
+  },
+  "the server gets the app's whole environment": {
+    "ok": true,
+    "expected_red": [
+      "environment"
+    ],
+    "red": [
+      "environment"
+    ]
+  },
+  "answers arrive in one piece": {
+    "ok": true,
+    "expected_red": [
+      "streaming"
+    ],
+    "red": [
+      "streaming"
+    ]
+  },
+  "the model never sees the tool's result": {
+    "ok": true,
+    "expected_red": [
+      "approve_inline",
+      "deny_inline",
+      "approve_after_restart",
+      "deny_after_restart"
+    ],
+    "red": [
+      "approve_after_restart",
+      "approve_inline",
+      "deny_after_restart",
+      "deny_inline"
+    ]
+  },
+  "an unanswered tool call is refused": {
+    "ok": true,
+    "status": {
+      "/anthropic/v1/messages": 400,
+      "/openai/v1/responses": 400,
+      "/local/v1/chat/completions": 400
+    }
+  }
+}

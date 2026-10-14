@@ -1,0 +1,62 @@
+{
+  "providers": {
+    "anthropic": {
+      "streaming": {
+        "ok": true,
+        "page_updates": 21,
+        "markup_shown_as_text": true,
+        "elements_built_from_markup": 0
+      },
+      "no": {
+        "ok": true,
+        "asked_for": "create_draft"
+      },
+      "once": {
+        "ok": true
+      }
+    },
+    "openai": {
+      "streaming": {
+        "ok": true,
+        "page_updates": 21,
+        "markup_shown_as_text": true,
+        "elements_built_from_markup": 0
+      },
+      "no": {
+        "ok": true,
+        "asked_for": "create_draft"
+      },
+      "once": {
+        "ok": true
+      }
+    },
+    "openai-compatible": {
+      "streaming": {
+        "ok": true,
+        "page_updates": 21,
+        "markup_shown_as_text": true,
+        "elements_built_from_markup": 0
+      },
+      "no": {
+        "ok": true,
+        "asked_for": "create_draft"
+      },
+      "once": {
+        "ok": true
+      }
+    }
+  },
+  "refusals": {
+    "ok": true,
+    "without_token": 401,
+    "foreign_host": 401,
+    "csp": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  },
+  "always": {
+    "ok": true,
+    "approval_cards_shown": 1,
+    "drafts_written": 2
+  },
+  "console_errors": [],
+  "all_ok": true
+}

@@ -1,0 +1,59 @@
+{
+  "about": "Ten questions a shop's customers ask, worded the way they write rather than the way the documents do, each with the words a passage must contain to answer it (case and spacing ignored). Two more that the documents do not answer, to see what retrieval returns when the honest answer is 'not covered'.",
+  "answerable": [
+    {
+      "id": "worn-return",
+      "question": "Hi, I wore my new rain jacket on one walk and I don't love the colour. Can I still send it back?",
+      "must_contain": ["unworn, unwashed"]
+    },
+    {
+      "id": "refund-timing",
+      "question": "I posted my return last week. Once you have it, how long until the money is back on my card?",
+      "must_contain": ["within 5 business days of inspection"]
+    },
+    {
+      "id": "holiday-return",
+      "question": "I bought a sleeping bag as a Christmas present in early December. What's the latest date I can return it?",
+      "must_contain": ["until january 31"]
+    },
+    {
+      "id": "label-cost",
+      "question": "Do I have to pay anything to use your prepaid return label?",
+      "must_contain": ["$6.95"]
+    },
+    {
+      "id": "gift-card",
+      "question": "My aunt gave me one of your gift cards back in 2023. Is it still valid?",
+      "must_contain": ["never expire"]
+    },
+    {
+      "id": "eu-duties",
+      "question": "I'm ordering from Germany. Will I have to pay import tax when the parcel arrives?",
+      "must_contain": ["duties and taxes are included"]
+    },
+    {
+      "id": "same-day",
+      "question": "If I order this morning, will it ship today?",
+      "must_contain": ["1:00 pm eastern"]
+    },
+    {
+      "id": "zip-warranty",
+      "question": "The zip on my Fernhill backpack broke after three years. Will you fix it under warranty?",
+      "must_contain": ["hardware are covered for two years"]
+    },
+    {
+      "id": "ember-400",
+      "question": "How many hours does the Ember 400 headlamp last on its brightest setting?",
+      "must_contain": ["ember 400", "6.5 hours"]
+    },
+    {
+      "id": "kestrel-25l",
+      "question": "What's the waterproof rating on the Kestrel 2.5L jacket?",
+      "must_contain": ["kestrel 2.5l rain jacket", "28,000 mm"]
+    }
+  ],
+  "unanswerable": [
+    {"id": "e-bikes", "question": "Do you sell electric bikes?"},
+    {"id": "crypto", "question": "Can I pay with Bitcoin?"}
+  ]
+}

@@ -1,0 +1,9 @@
+# The knowledge pipeline under test. Exact versions, as measured.
+markitdown[pdf,docx]==0.1.8
+fastembed==0.9.0
+onnxruntime==1.31.0
+sqlite-vec==0.1.9
+numpy==2.5.4
+# corpus.py only: writing the Word and PDF documents.
+fpdf2==2.8.9
+python-docx==1.2.0

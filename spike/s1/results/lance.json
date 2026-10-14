@@ -1,0 +1,64 @@
+{
+  "versions": {
+    "lancedb": "0.40.0",
+    "pyarrow": "26.0.0"
+  },
+  "build_s": 0.14,
+  "store_mb": 4.5,
+  "methods": {
+    "keywords": {
+      "hit@1": 0.5,
+      "hit@5": 0.8,
+      "mrr@10": 0.617,
+      "median_query_ms": 16.79,
+      "first_relevant_rank": {
+        "worn-return": null,
+        "refund-timing": 3,
+        "holiday-return": 1,
+        "label-cost": 1,
+        "gift-card": 1,
+        "eu-duties": 1,
+        "same-day": 1,
+        "zip-warranty": 22,
+        "ember-400": 3,
+        "kestrel-25l": 2
+      }
+    },
+    "vectors": {
+      "hit@1": 0.8,
+      "hit@5": 0.9,
+      "mrr@10": 0.82,
+      "median_query_ms": 13.84,
+      "first_relevant_rank": {
+        "worn-return": 12,
+        "refund-timing": 1,
+        "holiday-return": 1,
+        "label-cost": 1,
+        "gift-card": 1,
+        "eu-duties": 1,
+        "same-day": 1,
+        "zip-warranty": 5,
+        "ember-400": 1,
+        "kestrel-25l": 1
+      }
+    },
+    "hybrid_rrf": {
+      "hit@1": 0.8,
+      "hit@5": 0.8,
+      "mrr@10": 0.814,
+      "median_query_ms": 16.49,
+      "first_relevant_rank": {
+        "worn-return": 23,
+        "refund-timing": 1,
+        "holiday-return": 1,
+        "label-cost": 1,
+        "gift-card": 1,
+        "eu-duties": 1,
+        "same-day": 1,
+        "zip-warranty": 7,
+        "ember-400": 1,
+        "kestrel-25l": 1
+      }
+    }
+  }
+}
