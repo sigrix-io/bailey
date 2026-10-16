@@ -1,0 +1,14 @@
+body { font: 16px/1.5 system-ui, sans-serif; margin: 0; background: #fafaf7; color: #1d1d1b; }
+main { max-width: 44rem; margin: 0 auto; padding: 1.5rem 1rem; }
+h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
+.note { color: #5b5b55; margin-top: 0; }
+form { display: grid; gap: .5rem; margin-bottom: 1rem; }
+label { display: grid; gap: .25rem; font-weight: 600; }
+input, select, button { font: inherit; padding: .4rem .6rem; }
+#transcript p { margin: .4rem 0; white-space: pre-wrap; }
+.user { font-weight: 600; }
+.tool, .usage { color: #5b5b55; font-size: .9rem; }
+.error { color: #a1260d; }
+.approval { border: 1px solid #c9b458; background: #fff8d6; padding: .75rem; border-radius: .5rem; margin: .5rem 0; }
+.approval pre { white-space: pre-wrap; font-size: .85rem; }
+.approval button { margin-right: .5rem; }

@@ -1,0 +1,11 @@
+# The agent core under test, and what the checks drive it with. Exact versions, as measured.
+pydantic-ai-slim[anthropic,openai,mcp]==2.56.0
+fastmcp-slim==4.1.0
+mcp==2.3.0
+anthropic==1.13.0
+openai==3.31.0
+starlette==1.8.0
+uvicorn==0.54.0
+httpx==0.28.1
+# browser_check.py only. Uses an installed Chromium through SPIKE_CHROMIUM, or `playwright install chromium`.
+playwright==1.64.0

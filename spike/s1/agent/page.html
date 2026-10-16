@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="bailey-session" content="__SESSION_TOKEN__">
+  <title>Bailey spike</title>
+  <link rel="stylesheet" href="/static/page.css">
+  <script src="/static/page.js" defer></script>
+</head>
+<body>
+  <main>
+    <h1>Bailey spike</h1>
+    <p class="note">The agent core against an emulated provider. Answers stream in; a tool that writes asks first.</p>
+    <form id="ask">
+      <label>Provider
+        <select id="provider">
+          <option value="anthropic">Anthropic (Messages API)</option>
+          <option value="openai">OpenAI (Responses API)</option>
+          <option value="openai-compatible">OpenAI-compatible (Chat Completions)</option>
+        </select>
+      </label>
+      <label>Message <input id="message" value="Draft a reply to the latest refund request." autocomplete="off"></label>
+      <button type="submit" id="send">Send</button>
+    </form>
+    <section id="transcript" aria-live="polite"></section>
+  </main>
+</body>
+</html>
