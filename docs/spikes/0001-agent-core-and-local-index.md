@@ -207,6 +207,29 @@ collection passes about 100,000 passages, more than a small business's documents
 - **The pilot's real documents:** rerun `index/pipeline.py` on them once the first solution has
   them.
 
+## Ruling
+
+The owner ruled on both decisions on 2026-10-16, on sigrix-io/sigrix#6558.
+
+**Decision 1: PydanticAI, as recommended, with three guards.**
+
+1. `agent/check.py --live` runs against Anthropic and OpenAI before the agent core (S6) merges.
+2. The pin is exact, and these checks become S6's contract tests, which every version bump passes
+   before it lands.
+3. Bailey stores conversations and paused approvals in a versioned format of its own. This spike
+   saved them in PydanticAI's message schema (`ModelMessagesTypeAdapter`), and data stored that
+   way would tie every user's history to one library and its versions.
+
+The thin loop stays the fallback, behind the same interface, if the live run fails in a way no
+version fixes.
+
+**Decision 6: the stack as recommended, with one change.** A solution's documents that fit under a
+size limit go into the prompt whole, where prompt caching keeps their repeat cost low, instead of
+through the search tool. The index takes over above the limit, and for a local model whose context
+window is too short. The knowledge story (S8) sets the limit by measurement. The first users write
+English, so the embedding model stays an English one: all-MiniLM-L6-v2 as measured, or fastembed's
+default, bge-small-en-v1.5, compared on the same ten questions once Hugging Face can be reached.
+
 ## Reproducing it
 
 `spike/s1/README.md` lists the environments and the commands. Every script prints the JSON report

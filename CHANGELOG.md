@@ -9,8 +9,8 @@ described in `VERSIONING.md`.
 ### Added
 
 - `docs/spikes/0001-agent-core-and-local-index.md`: the measurements behind the agent core
-  and the knowledge index planned for 0.1, and what they recommend. Nothing in the package
-  changes.
+  and the knowledge index planned for 0.1, what they recommend, and the owner's ruling on
+  both (2026-10-16). Nothing in the package changes.
 - The solution format, published: `schemas/0.1/assistant.schema.json` is the schema for
   `assistant.json`, the document that says how a solution's parts fit together, with its
   `$id` at `https://sigrix.io/schemas/bailey/0.1/assistant.schema.json`.
