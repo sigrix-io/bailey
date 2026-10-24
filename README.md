@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/sigrix-io/bailey/main/.github/assets/logo-on-dark.svg">
+    <img src="https://raw.githubusercontent.com/sigrix-io/bailey/main/.github/assets/logo.svg" alt="Bailey" width="120">
+  </picture>
+</p>
+
 # Bailey
 
 [![PyPI](https://img.shields.io/pypi/v/bailey)](https://pypi.org/project/bailey/)
