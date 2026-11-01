@@ -23,10 +23,12 @@ described in `VERSIONING.md`.
   venv and pip otherwise. Apps with the same requirements share one. Building it
   downloads about 250 MB from PyPI and takes about 900 MB on disk, which the Apps panel
   says, and runs only when the person presses the button.
-- The app host starts an app's runner when its page opens:
-  `python -m sigrix_runtime.postern --bundle <folder> --host 127.0.0.1 --port 0 --no-pull`,
-  with `PYTHONSAFEPATH` so the pinned runtime serves rather than the copy a Sigrix bundle
-  carries, and the port read from the runner's `POSTERN_PORT=` line. The runner stops
+- The app host starts an app's runner when its page opens: the runtime's own `main`, as
+  `python -m sigrix_runtime.postern --bundle <folder> --host 127.0.0.1 --port 0 --no-pull`
+  runs it, less the standard library's reverse lookup of the address it binds, a name
+  nothing reads that held every start back by more than 30 seconds on GitHub's macOS
+  runners. `PYTHONSAFEPATH` makes the pinned runtime serve rather than the copy a Sigrix
+  bundle carries, and the port is read from the runner's `POSTERN_PORT=` line. The runner stops
   with its app's assistant and with Bailey. Its environment is built as the tool host
   builds a server's: the system's few defaults, the proxy and certificate settings, the
   person's provider key and model, CrewAI's telemetry switched off, and a token of

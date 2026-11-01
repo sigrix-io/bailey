@@ -11,8 +11,8 @@ says a buyer does, with one difference: its own environment.
   requirements are the same share one. Building it downloads about
   :data:`ENVIRONMENT_DOWNLOAD_MB` MB from PyPI, which the page announces and the person
   says yes to first, as with the search model.
-- **The runner** is ``python -m sigrix_runtime.postern``, started from the app's folder
-  on a loopback port of its own (:class:`AppHost`). ``PYTHONSAFEPATH`` keeps the pinned
+- **The runner** is the runtime's own ``main`` (:data:`RUNNER_START`), started from the
+  app's folder on a loopback port of its own (:class:`AppHost`). ``PYTHONSAFEPATH`` keeps the pinned
   runtime serving rather than the copy a Sigrix bundle carries. Its environment is
   built here as the tool host builds a server's: the system's few defaults, the proxy and
   certificate settings, the person's provider key and model, CrewAI's telemetry switched
@@ -53,6 +53,21 @@ ENVIRONMENT_DOWNLOAD_MB = 250
 ENVIRONMENT_DISK_MB = 900
 #: How long a runner may take to start serving, in seconds.
 START_TIMEOUT = 60.0
+
+#: How a runner starts: the runtime's own ``main``, as ``python -m sigrix_runtime.postern``
+#: runs it, less one step. The standard library's HTTP server names itself after a reverse
+#: lookup of the address it has bound, a name nothing in the runner reads, and a resolver
+#: that cannot answer for 127.0.0.1 at once holds the runner's port back until it gives up:
+#: on GitHub's macOS runners, for more than 30 seconds at every start.
+RUNNER_START = (
+    "import http.server, socketserver, sys\n"
+    "def server_bind(self):\n"
+    "    socketserver.TCPServer.server_bind(self)\n"
+    "    self.server_name, self.server_port = self.server_address[:2]\n"
+    "http.server.HTTPServer.server_bind = server_bind\n"
+    "from sigrix_runtime.postern.__main__ import main\n"
+    "sys.exit(main())\n"
+)
 
 #: CrewAI's telemetry and tracing switches, as ``sigrix_runtime.quiet`` sets them. Bailey
 #: exports them too, so a bundle cannot turn them back on from a file of its own; the
@@ -436,7 +451,7 @@ class AppHost:
             environ=os.environ,
             extra=self.environments.variables(),
         )
-        command = [str(python), "-m", "sigrix_runtime.postern", "--bundle", str(folder)]
+        command = [str(python), "-c", RUNNER_START, "--bundle", str(folder)]
         command += ["--host", "127.0.0.1", "--port", "0", "--no-pull", "--quiet"]
         try:
             process = subprocess.Popen(  # noqa: S603 - the app's own interpreter, a fixed argv

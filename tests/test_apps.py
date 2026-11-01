@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import socket
 import sys
 import threading
@@ -219,6 +220,38 @@ def test_the_form_comes_from_the_apps_describe_through_bailey(client: TestClient
     host = client.app_state.app_host  # type: ignore[attr-defined]
     runner = host._running[(imported["id"], "digest")]
     assert httpx.get(f"{runner.base}/postern/v0/describe").status_code == 401, "the runner answers only Bailey"
+
+
+#: A machine that cannot look up its own address: ``socket.getfqdn`` raises, in every Python
+#: started with this folder first on its path.
+NO_REVERSE_LOOKUP = """
+import socket
+
+
+def getfqdn(name=""):
+    raise OSError("this machine cannot look up " + repr(name))
+
+
+socket.getfqdn = getfqdn
+"""
+
+
+def test_a_runner_starts_without_looking_up_its_own_address(
+    client: TestClient, environments: HereEnvironments, tmp_path: Path
+) -> None:
+    """The standard library's HTTP server names itself after a reverse lookup of 127.0.0.1,
+    which took more than 30 seconds at every start on GitHub's macOS runners."""
+
+    resolver = tmp_path / "resolver"
+    resolver.mkdir()
+    (resolver / "sitecustomize.py").write_text(NO_REVERSE_LOOKUP, encoding="utf-8")
+    environments.extra = {"PYTHONPATH": os.pathsep.join([str(resolver), str(STAND_INS)])}
+    imported = _ready(client)
+    describe = client.get(f"{_app(imported['id'])}/postern/v0/describe", headers=AUTH)
+    assert describe.status_code == 200, describe.text
+    run = client.post(f"{_app(imported['id'])}/postern/v0/run", headers=AUTH, json={"inputs": {"prompt": NOTES}})
+    assert run.status_code == 200, run.text
+    assert run.json()["output"]["value"].startswith("Newsletter Writer did:")
 
 
 @pytest.mark.parametrize("provider", ["openai", "openai-compatible"])
