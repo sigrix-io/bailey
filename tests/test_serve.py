@@ -194,7 +194,8 @@ def test_the_server_starts_without_loading_the_agent_core() -> None:
 
     probe = (
         "import sys, bailey.server; "
-        "print(sorted(m for m in ('pydantic_ai', 'anthropic', 'openai', 'fastmcp', 'mcp') if m in sys.modules))"
+        "print(sorted(m for m in ('pydantic_ai', 'anthropic', 'openai', 'fastmcp', 'mcp', 'numpy', 'onnxruntime', "
+        "'fastembed', 'markitdown') if m in sys.modules))"
     )
     completed = subprocess.run(
         [sys.executable, "-c", probe],

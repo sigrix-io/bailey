@@ -13,6 +13,7 @@
   var chat = { assistants: null, conversation: null, streaming: false, pending: [], lastReply: null };
   var editing = null;
   var toolsOf = null;
+  var knowledgeOf = null;
 
   function byId(id) {
     return document.getElementById(id);
@@ -286,10 +287,39 @@
       usage: entry.usage || null,
       estimate: entry.estimate || null,
     };
+    (entry.searches || []).forEach(function (query) {
+      showSearch(made, query);
+    });
     (entry.tools || []).forEach(function (call) {
       showTool(made, call);
     });
+    showCitations(made, entry.citations || []);
     return made;
+  }
+
+  function showSearch(reply, query) {
+    reply.tools.append(element("li", "tool-line tool-success", "Searched the documents for \u201c" + query + "\u201d."));
+  }
+
+  // Each passage an answer cites, as its file, heading and text, under the answer.
+  function showCitations(reply, citations) {
+    var old = reply.bubble.querySelector(".citations");
+    if (old) {
+      old.remove();
+    }
+    if (!citations.length) {
+      return;
+    }
+    var box = element("div", "citations");
+    box.append(element("p", "citations-title", citations.length === 1 ? "Source" : "Sources"));
+    citations.forEach(function (citation) {
+      var item = element("details", "citation");
+      var where = citation.document + " \u203a " + citation.heading + (citation.page ? ", page " + citation.page : "");
+      item.append(element("summary", "", "[P" + citation.id + "] " + where));
+      item.append(element("p", "citation-text", citation.text));
+      box.append(item);
+    });
+    reply.bubble.insertBefore(box, reply.meta);
   }
 
   // One line per call of a server's tool, saying how it went, as text.
@@ -501,6 +531,9 @@
         reply.meta.textContent = "Loading the " + event.name + " skill…";
       } else if (event.type === "status") {
         reply.meta.textContent = event.text;
+      } else if (event.type === "search") {
+        showSearch(reply, event.query);
+        reply.meta.textContent = "Searching the documents\u2026";
       } else if (event.type === "tool") {
         showTool(reply, { id: event.id, tool: event.tool, server: event.server, outcome: "" });
         reply.meta.textContent = "Using " + event.tool + "…";
@@ -515,6 +548,7 @@
         reply.usage = addedUsage(reply.usage, event.usage);
         reply.estimate = addedEstimate(reply.estimate, event.estimate);
         reply.meta.textContent = metaLine({ skills: reply.skills, usage: reply.usage, estimate: reply.estimate });
+        showCitations(reply, event.citations || []);
         if (event.paused) {
           drawQuestion(chat.pending);
         } else {
@@ -715,6 +749,9 @@
       actions.append(button("Edit", "quiet", function () {
         editAssistant(assistant.id);
       }));
+      actions.append(button("Documents", "quiet", function () {
+        openKnowledge(assistant.id);
+      }));
       if (assistant.servers && assistant.servers.length) {
         actions.append(button("Tools", "quiet", function () {
           openTools(assistant.id);
@@ -768,10 +805,10 @@
         drawAssistantPick();
         drawAssistantList();
         say("assistants-status", "Imported " + file.name + "." + (view.notice ? " " + view.notice : ""), false);
-        if (view.notice) {
-          return openTools(view.id);
-        }
-        return null;
+        var opened = view.notice ? openTools(view.id) : Promise.resolve(null);
+        return opened.then(function () {
+          return view.asks_for_documents ? openKnowledge(view.id) : null;
+        });
       })
       .catch(function (error) {
         say("assistants-status", error.message, true);
@@ -816,6 +853,9 @@
         }
         if (toolsOf === assistant.id) {
           closeTools();
+        }
+        if (knowledgeOf === assistant.id) {
+          closeKnowledge();
         }
         drawAssistantPick();
         drawAssistantList();
@@ -874,6 +914,7 @@
         byId("assistant-instructions").value = form.instructions;
         byId("assistant-persona").value = form.persona;
         byId("assistant-starters").value = form.starters.join("\n");
+        byId("assistant-grounded").checked = Boolean(form.grounded_only);
         var skills = byId("skill-list");
         skills.replaceChildren();
         form.skills.forEach(function (skill) {
@@ -916,6 +957,7 @@
       instructions: byId("assistant-instructions").value,
       persona: byId("assistant-persona").value,
       starters: byId("assistant-starters").value.split("\n"),
+      grounded_only: byId("assistant-grounded").checked,
       skills: skills,
     };
     api("PUT", "/api/assistants/" + encodeURIComponent(editing), form)
@@ -933,6 +975,166 @@
         say("assistant-form-status", error.message, true);
       });
   });
+
+  // Documents -----------------------------------------------------------------
+
+  function knowledgePath(id) {
+    return "/api/assistants/" + encodeURIComponent(id) + "/knowledge";
+  }
+
+  function openKnowledge(id) {
+    return api("GET", knowledgePath(id))
+      .then(drawKnowledge)
+      .catch(function (error) {
+        say("assistants-status", error.message, true);
+      });
+  }
+
+  function closeKnowledge() {
+    knowledgeOf = null;
+    byId("knowledge-card").hidden = true;
+  }
+
+  function knowledgeChange(promise, done) {
+    return promise
+      .then(function (panel) {
+        drawKnowledge(panel);
+        say("knowledge-status", done, false);
+      })
+      .catch(function (error) {
+        say("knowledge-status", error.message, true);
+      });
+  }
+
+  function upload(file, query) {
+    return file.arrayBuffer().then(function (data) {
+      return api("POST", knowledgePath(knowledgeOf) + query, data, "application/octet-stream");
+    });
+  }
+
+  function modeWords(panel) {
+    if (panel.mode === "whole") {
+      return "These go into each message whole: about " + panel.tokens.toLocaleString() + " tokens of the " +
+        panel.limit.toLocaleString() + " Bailey sends whole, so the assistant reads all of them. It cites each passage it uses.";
+    }
+    if (panel.mode === "search") {
+      return "These are about " + panel.tokens.toLocaleString() + " tokens, more than the " + panel.limit.toLocaleString() +
+        " Bailey sends whole, so the assistant searches them for each question. It cites each passage it uses.";
+    }
+    return "Give the assistant documents, and it answers from them, citing each passage it uses. They stay on this computer.";
+  }
+
+  function drawKnowledge(panel) {
+    knowledgeOf = panel.id;
+    byId("knowledge-title").textContent = "Documents of " + assistantTitle(panel.id);
+    byId("knowledge-mode").textContent = modeWords(panel);
+    var needsModel = panel.mode === "search" && !panel.model.ready;
+    byId("knowledge-model").hidden = !needsModel;
+    byId("knowledge-model-text").textContent =
+      "Bailey searches documents with a model it downloads once from " + panel.model.source + ": " + panel.model.label +
+      ", about " + panel.model.size_mb + " MB. Your documents stay on this computer.";
+    var slots = byId("knowledge-slots");
+    slots.replaceChildren();
+    if (panel.slots.length) {
+      slots.append(element("h3", "subhead", "What this solution asks for"));
+    }
+    panel.slots.forEach(function (slot) {
+      var row = element("div", "slot");
+      var title = element("p", "slot-title", slot.description);
+      if (slot.required) {
+        title.append(" ", element("span", "badge", "Needed"));
+      }
+      row.append(title);
+      var held = slot.document;
+      row.append(
+        element(
+          "p",
+          "hint",
+          held
+            ? (held.kind === "sample" ? "The sample, " : "Your file, ") + held.name + "."
+            : "Not given yet. Bailey takes " + slot.accepts.join(", ") + "."
+        )
+      );
+      var actions = element("div", "actions");
+      var id = "slot-file-" + slot.name;
+      var pick = element("label", "file-button", held && held.kind !== "sample" ? "Replace your file" : "Add your file");
+      pick.htmlFor = id;
+      var input = element("input");
+      input.type = "file";
+      input.id = id;
+      input.className = "sr-only";
+      input.accept = slot.accepts.map(function (extension) {
+        return "." + extension;
+      }).join(",");
+      input.addEventListener("change", function () {
+        var file = input.files && input.files[0];
+        input.value = "";
+        if (file) {
+          knowledgeChange(upload(file, "?slot=" + encodeURIComponent(slot.name) + "&name=" + encodeURIComponent(file.name)), "Added " + file.name + ".");
+        }
+      });
+      actions.append(pick, input);
+      if (slot.sample && !(held && held.kind === "sample")) {
+        actions.append(button("Use the sample", "quiet", function () {
+          knowledgeChange(api("POST", knowledgePath(panel.id) + "/samples/" + encodeURIComponent(slot.name)), "Using the sample.");
+        }));
+      }
+      if (held) {
+        actions.append(button("Remove", "quiet", function () {
+          knowledgeChange(api("DELETE", knowledgePath(panel.id) + "/" + encodeURIComponent(held.id)), "Removed " + held.name + ".");
+        }));
+      }
+      row.append(actions);
+      slots.append(row);
+    });
+    var list = byId("knowledge-documents");
+    list.replaceChildren();
+    if (!panel.documents.length) {
+      list.append(element("li", "hint", "None yet."));
+    }
+    panel.documents.forEach(function (document) {
+      var item = element("li", "document");
+      item.append(element("span", "", document.name + (document.kind === "reference" ? " (from the solution, searched when needed)" : "")));
+      item.append(button("Remove", "quiet", function () {
+        knowledgeChange(api("DELETE", knowledgePath(panel.id) + "/" + encodeURIComponent(document.id)), "Removed " + document.name + ".");
+      }));
+      list.append(item);
+    });
+    byId("knowledge-file").accept = panel.accepts.map(function (extension) {
+      return "." + extension;
+    }).join(",");
+    byId("knowledge-card").hidden = false;
+    byId("knowledge-card").scrollIntoView({ block: "start" });
+  }
+
+  byId("knowledge-file").addEventListener("change", function (event) {
+    var file = event.target.files && event.target.files[0];
+    event.target.value = "";
+    if (file && knowledgeOf) {
+      knowledgeChange(upload(file, "?name=" + encodeURIComponent(file.name)), "Added " + file.name + ".");
+    }
+  });
+
+  byId("knowledge-download").addEventListener("click", function () {
+    var buttonEl = byId("knowledge-download");
+    buttonEl.disabled = true;
+    say("knowledge-status", "Downloading the search model\u2026", false);
+    api("POST", "/api/knowledge/model")
+      .then(function () {
+        return openKnowledge(knowledgeOf);
+      })
+      .then(function () {
+        say("knowledge-status", "The search model is here. Bailey will not fetch it again.", false);
+      })
+      .catch(function (error) {
+        say("knowledge-status", error.message, true);
+      })
+      .then(function () {
+        buttonEl.disabled = false;
+      });
+  });
+
+  byId("close-knowledge").addEventListener("click", closeKnowledge);
 
   // Tools ---------------------------------------------------------------------
 

@@ -43,7 +43,6 @@ uvx bailey doctor
 | Python 3.11 or newer | Bailey itself | yes |
 | SQLite with full-text search (FTS5) | searching your documents by keyword | yes |
 | A loopback address | the app's local server, which only this computer can reach | yes |
-| SQLite extension loading | the vector index, which finds passages by meaning | no |
 | uv | tools published as Python packages, which start with `uvx` | no |
 | Node.js | tools published as npm packages, which start with `npx` | no |
 | A data folder Bailey can write in | your settings and conversations, kept on this computer | yes |
@@ -78,8 +77,13 @@ ruff check . && ruff format --check . && mypy && pytest
 
 From a checkout, `bailey` starts the app as far as 0.1 has come: chat with an assistant on your AI provider,
 skills loaded when a request needs them, a solution's MCP tools with a question before any tool that changes
-something, assistants made from templates, edited, exported and imported, and settings with your provider's key.
+something, documents that answers cite, sent whole or searched on this computer, assistants made from templates,
+edited, exported and imported, and settings with your provider's key.
 `CONTRIBUTING.md` says how to keep a development setup apart from your own.
+
+Searching a large collection of documents takes a model of about 90 MB, which Bailey downloads from Hugging Face
+once you say yes to it. On a computer that cannot reach Hugging Face, put the files of
+`Qdrant/all-MiniLM-L6-v2-onnx` in a folder and set `BAILEY_SEARCH_MODEL` to that folder.
 
 ## Licence
 

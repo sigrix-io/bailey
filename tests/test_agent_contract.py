@@ -19,6 +19,7 @@ import asyncio
 import json
 import socket
 from collections.abc import Iterator, Sequence
+from dataclasses import replace
 from typing import Any
 
 import emulated_providers as emulator
@@ -161,6 +162,20 @@ def test_the_context_names_the_skills_and_holds_no_skill_body() -> None:
     for skill in ASSISTANT.skills:
         assert f"`{skill.name}`: {skill.description}" in opening
         assert skill.body not in opening
+
+
+def test_the_instructions_bring_their_own_reference_files_into_the_context() -> None:
+    """No ``load_skill`` call loads the skill holding the instructions, so its references come with it."""
+
+    instructions = Skill(
+        "test-instructions",
+        "Its instructions.",
+        "You are a test assistant.",
+        (("house-rules.md", "MARKER-RULES: never promise a delivery date."),),
+    )
+    opening = context(replace(ASSISTANT, instructions=instructions))
+    assert opening.startswith("You are a test assistant.")
+    assert "## references/house-rules.md" in opening and "MARKER-RULES" in opening
 
 
 def test_an_assistant_without_skills_is_offered_no_tool(base: str) -> None:

@@ -2,8 +2,8 @@
 
 Thanks for looking. Bailey's first release is a single command, `bailey doctor`;
 the assistant itself is being built toward 0.1, and its frame (the local server,
-the page, settings and keys, chat with assistants and their skills, and their
-tools) is on `main`.
+the page, settings and keys, chat with assistants and their skills, their
+tools and their documents) is on `main`.
 
 ## What fits now
 
@@ -40,6 +40,13 @@ tools) is on `main`.
 - A tool that changes something and runs without asking. A write, and any tool a
   solution does not declare, waits for the person unless they allowed it always
   for that assistant (`tests/test_tool_contract.py`).
+- A document, or anything about one, leaving the computer other than the
+  passages a request carries to the AI provider. Conversion, splitting,
+  indexing and search all run locally (`src/bailey/knowledge.py`).
+- A download nobody asked for. The search model is fetched only from
+  `POST /api/knowledge/model`, which the page calls after it has named the model,
+  its size and where it comes from; everywhere else it loads with nothing
+  fetched.
 
 ## Working on it
 
@@ -59,6 +66,13 @@ own wire protocol and refuses what the real services refuse, so no test needs a
 key, and tools on `tests/tool_servers/mailbox.py`, a real stdio MCP server. A
 PydanticAI, SDK, FastMCP or MCP version bump lands only once
 `tests/test_agent_contract.py` and `tests/test_tool_contract.py` pass on it.
+
+Documents are tested on the fixture solution `tests/fixtures/shop-replies`, with
+`fakes.FakeEmbedder` standing in for the search model, so no test downloads it.
+One test runs the real model: set `BAILEY_SEARCH_MODEL` to a folder holding it,
+or `BAILEY_TEST_REAL_EMBEDDINGS=1` to let the test fetch it; CI does the second
+on one job. A MarkItDown, fastembed or onnxruntime bump lands only once
+`tests/test_knowledge_contract.py` and that test pass on it.
 
 Each doctor check takes what it probes as an argument, so a test can hand it a
 machine that lacks something. A new check comes with a test on both sides.

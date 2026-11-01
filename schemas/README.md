@@ -17,7 +17,9 @@ shop-support/
 ├── skills/
 │   ├── shop-support/SKILL.md     the assistant's own instructions
 │   └── brand-voice/SKILL.md      a skill it loads when needed
-└── mcp.json
+├── mcp.json
+└── samples/
+    └── refund_policy.md          a made-up example of a document it asks for
 ```
 
 [`0.1/assistant.schema.json`](0.1/assistant.schema.json) is format 0.1. Each
@@ -56,6 +58,13 @@ A writer also keeps these, which JSON Schema cannot express:
 A client asks before a write. It treats as a write any tool missing from its
 server's declaration, and every tool of a server missing from `tools`, so a
 writer that declares nothing gets asked about everything rather than nothing.
+
+A knowledge slot may come with a made-up example of the document it asks for,
+`samples/<name>.<extension>`, named by the slot and in one of the types it
+accepts, so a person can try the solution before giving their own. Bailey
+reads a sample written as UTF-8 text, up to 256 KB, and leaves out one it
+cannot read as text, such as a PDF. A person's own documents stay on their
+machine and never go into a package.
 
 ### Writers and readers
 

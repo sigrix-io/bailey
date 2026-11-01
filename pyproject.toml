@@ -34,6 +34,10 @@ classifiers = [
 # it. The tool host runs a solution's MCP servers through PydanticAI's MCP
 # toolset, which is built on FastMCP's client and the official MCP SDK, pinned
 # exactly at the spike's versions too.
+#
+# Knowledge is S1's stack, pinned at the versions it measured: MarkItDown converts
+# documents, fastembed embeds them on this computer through onnxruntime, and numpy
+# searches the vectors. Each loads only when a document needs it.
 dependencies = [
     "starlette>=1.10,<2",
     "uvicorn>=0.54",
@@ -44,6 +48,10 @@ dependencies = [
     "openai==3.31.0",
     "fastmcp-slim==4.1.0",
     "mcp==2.3.0",
+    "markitdown[pdf,docx]==0.1.8",
+    "fastembed==0.9.0",
+    "onnxruntime==1.31.0",
+    "numpy==2.5.4",
 ]
 
 [project.optional-dependencies]

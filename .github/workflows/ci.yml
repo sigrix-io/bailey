@@ -19,6 +19,10 @@ jobs:
       # The keychain round trip writes to the runner's own keychain, which the macOS and
       # Windows runners have and the Linux ones lack (tests/test_real_keychain.py).
       BAILEY_TEST_REAL_KEYCHAIN: ${{ matrix.os == 'ubuntu-latest' && '0' || '1' }}
+      # The search model is fetched from Hugging Face and searched with once, on one job:
+      # every other test uses a stand-in, so this is what notices a fastembed or
+      # onnxruntime bump that no longer loads it (tests/test_knowledge.py).
+      BAILEY_TEST_REAL_EMBEDDINGS: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && '1' || '0' }}
     strategy:
       fail-fast: false
       matrix:
