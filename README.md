@@ -46,6 +46,8 @@ uvx bailey doctor
 | SQLite extension loading | the vector index, which finds passages by meaning | no |
 | uv | tools published as Python packages, which start with `uvx` | no |
 | Node.js | tools published as npm packages, which start with `npx` | no |
+| A data folder Bailey can write in | your settings and conversations, kept on this computer | yes |
+| A keychain | keeping your AI keys out of plain files; without one they go to a file encrypted under a passphrase | no |
 
 It exits 1 when a required check fails, and `bailey doctor --json` prints the same answers for a script. It reads your machine only: no network call, no file written.
 
@@ -73,6 +75,10 @@ Every project Sigrix publishes, and a map of how they connect: [sigrix.io/open-s
 pip install -e ".[dev]"
 ruff check . && ruff format --check . && mypy && pytest
 ```
+
+From a checkout, `bailey` starts the app as far as 0.1 has come: the local server, the page, and settings
+with your AI provider's key. Chat arrives with the next part. `CONTRIBUTING.md` says how to keep a
+development setup apart from your own.
 
 ## Licence
 

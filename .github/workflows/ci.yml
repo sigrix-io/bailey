@@ -15,6 +15,10 @@ concurrency:
 jobs:
   test:
     runs-on: ${{ matrix.os }}
+    env:
+      # The keychain round trip writes to the runner's own keychain, which the macOS and
+      # Windows runners have and the Linux ones lack (tests/test_real_keychain.py).
+      BAILEY_TEST_REAL_KEYCHAIN: ${{ matrix.os == 'ubuntu-latest' && '0' || '1' }}
     strategy:
       fail-fast: false
       matrix:

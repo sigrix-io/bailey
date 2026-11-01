@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Bailey</title>
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="frame">
+    <header class="top">
+      <img class="mark" src="/static/icon.svg" alt="" width="24" height="26">
+      <span class="brand">Bailey</span>
+      <span class="version" id="version"></span>
+    </header>
+
+    <nav class="nav" id="nav" aria-label="Bailey" hidden>
+      <button type="button" class="nav-item" data-view="chat" aria-current="page">Chat</button>
+      <button type="button" class="nav-item" data-view="settings">Settings</button>
+    </nav>
+
+    <main class="main">
+      <p class="notice" id="loading" role="status">Opening Bailey…</p>
+
+      <section class="view" id="no-session" hidden aria-labelledby="no-session-title">
+        <h1 id="no-session-title">Open Bailey at its address</h1>
+        <p>
+          This page needs the address Bailey printed when it started, which carries a token for this session.
+          The token changes each time Bailey starts, so an address from an earlier session no longer opens it.
+        </p>
+        <p>Run <code>uvx bailey</code> again, or open the address it printed in its terminal.</p>
+      </section>
+
+      <section class="view" data-panel="chat" hidden aria-labelledby="chat-title">
+        <h1 id="chat-title">Chat</h1>
+        <div class="empty">
+          <p class="empty-title">No assistant yet.</p>
+          <p id="chat-next">
+            This build is Bailey's frame: its settings work, and chat arrives with the next part.
+          </p>
+        </div>
+      </section>
+
+      <section class="view" data-panel="settings" hidden aria-labelledby="settings-title">
+        <h1 id="settings-title">Settings</h1>
+
+        <form class="card" id="provider-form" novalidate>
+          <fieldset>
+            <legend>AI provider</legend>
+            <div class="choices" id="provider-choices"></div>
+          </fieldset>
+          <div class="field" id="address-field" hidden>
+            <label for="address">Server address</label>
+            <input id="address" name="address" type="url" autocomplete="off" spellcheck="false"
+                   placeholder="http://localhost:11434/v1">
+            <p class="hint">The address of a server that speaks OpenAI's API, such as Ollama or LM Studio.</p>
+          </div>
+          <div class="actions">
+            <button type="submit">Save provider</button>
+          </div>
+          <p class="status" id="provider-status" role="status"></p>
+        </form>
+
+        <section class="card" id="key-card" aria-labelledby="key-title" hidden>
+          <h2 id="key-title">Key</h2>
+          <p id="key-state"></p>
+          <form id="key-form" novalidate>
+            <div class="field">
+              <label for="key">New key</label>
+              <input id="key" name="key" type="password" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="actions">
+              <button type="submit">Save key</button>
+              <button type="button" class="quiet" id="key-remove" hidden>Remove the saved key</button>
+            </div>
+          </form>
+          <p class="hint" id="key-help" hidden><a id="key-link" target="_blank" rel="noopener noreferrer">Where to get a key</a></p>
+          <p class="status" id="key-status" role="status"></p>
+        </section>
+
+        <section class="card" id="locked-card" aria-labelledby="locked-title" hidden>
+          <h2 id="locked-title">Your keys are locked</h2>
+          <p id="locked-explain"></p>
+          <form id="unlock-form" novalidate hidden>
+            <div class="field">
+              <label for="unlock-passphrase">Passphrase</label>
+              <input id="unlock-passphrase" type="password" autocomplete="current-password">
+            </div>
+            <div class="actions">
+              <button type="submit">Unlock</button>
+              <button type="button" class="quiet" id="reset-keys">Forgot it? Start over</button>
+            </div>
+          </form>
+          <form id="choose-form" novalidate hidden>
+            <div class="field">
+              <label for="new-passphrase">Choose a passphrase</label>
+              <input id="new-passphrase" type="password" autocomplete="new-password">
+            </div>
+            <div class="field">
+              <label for="new-passphrase-again">Type it again</label>
+              <input id="new-passphrase-again" type="password" autocomplete="new-password">
+            </div>
+            <div class="actions">
+              <button type="submit">Set the passphrase</button>
+            </div>
+          </form>
+          <p class="status" id="locked-status" role="status"></p>
+        </section>
+
+        <p class="where" id="keys-where"></p>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

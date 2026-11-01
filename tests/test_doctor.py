@@ -21,8 +21,10 @@ import pytest
 from bailey import doctor
 from bailey.doctor import (
     Check,
+    check_data_folder,
     check_extension_loading,
     check_full_text_search,
+    check_keychain,
     check_loopback,
     check_node,
     check_python,
@@ -156,7 +158,54 @@ def test_the_report_names_every_check_and_gives_a_fix_only_where_one_failed() ->
 def test_the_report_names_the_optional_gaps_when_the_machine_is_ready() -> None:
     text = render([_check("Python", ok=True, required=True), _check("uv", ok=False, required=False)], version="1")
     assert "This machine has everything Bailey requires." in text
-    assert "Optional and missing: uv." in text
+    assert "Optional and missing: uv. Bailey works without them; each says above what changes." in text
+    assert "solution whose tools" not in text, "the keychain is optional too, and is no solution's tool"
+
+
+def test_a_data_folder_that_can_be_made_passes_and_is_not_made(tmp_path: Path) -> None:
+    folder = tmp_path / "not" / "yet" / "bailey"
+    check = check_data_folder(folder)
+    assert (check.ok, check.required) == (True, True)
+    assert check.found == f"{folder} (made when Bailey first starts)"
+    assert not (tmp_path / "not").exists(), "the doctor writes nothing"
+    folder.mkdir(parents=True)
+    assert check_data_folder(folder).found == str(folder)
+
+
+def test_a_data_folder_this_user_cannot_write_fails_and_says_where(tmp_path: Path) -> None:
+    check = check_data_folder(tmp_path / "bailey", access=lambda _path, _mode: False)
+    assert (check.ok, check.required) == (False, True)
+    assert check.found == f"{tmp_path / 'bailey'}: this user cannot write in {tmp_path}"
+    assert "BAILEY_HOME" in check.fix
+
+
+def test_a_data_folder_under_a_file_fails(tmp_path: Path) -> None:
+    blocker = tmp_path / "a-file"
+    blocker.write_text("", encoding="utf-8")
+    check = check_data_folder(blocker / "bailey")
+    assert not check.ok and "is a file, not a folder" in check.found
+
+
+def test_a_keychain_is_optional_and_its_absence_names_the_encrypted_file() -> None:
+    present = check_keychain(lambda: "the macOS Keychain")
+    assert (present.ok, present.required, present.found, present.fix) == (True, False, "the macOS Keychain", "")
+    absent = check_keychain(lambda: None)
+    assert (absent.ok, absent.required, absent.found) == (False, False, "none on this machine")
+    assert "encrypted file" in absent.fix and "passphrase" in absent.fix
+
+
+def test_a_keychain_that_cannot_be_asked_is_reported_rather_than_crashing() -> None:
+    def broken() -> str | None:
+        raise RuntimeError("no session bus")
+
+    check = check_keychain(broken)
+    assert not check.ok and check.found == "could not be asked (RuntimeError: no session bus)"
+
+
+def test_the_whole_doctor_creates_no_data_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BAILEY_HOME", str(tmp_path / "home"))
+    run_checks()
+    assert not (tmp_path / "home").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -173,9 +222,16 @@ def test_the_checks_come_in_a_fixed_order_and_each_says_what_it_is_for() -> None
         "uv",
         "Node.js",
         "Loopback",
+        "Data folder",
+        "Keychain",
     ]
     assert all(check.found and check.needed_for for check in checks)
-    assert {check.name for check in checks if check.required} == {"Python", "SQLite full-text search", "Loopback"}
+    assert {check.name for check in checks if check.required} == {
+        "Python",
+        "SQLite full-text search",
+        "Loopback",
+        "Data folder",
+    }
 
 
 def test_it_reaches_nothing_beyond_this_machine(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -186,7 +242,7 @@ def test_it_reaches_nothing_beyond_this_machine(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(socket.socket, "connect", refuse)
     monkeypatch.setattr(socket, "create_connection", refuse)
-    assert len(run_checks()) == 6
+    assert len(run_checks()) == 8
 
 
 def test_the_command_answers_with_json_on_a_real_process() -> None:

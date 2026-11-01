@@ -22,9 +22,16 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-# Nothing yet. The doctor is the standard library, so `uvx bailey doctor`
-# installs one package. The assistant's own dependencies arrive with 0.1.
-dependencies = []
+# The app's own: Starlette on uvicorn serves the page on loopback, keyring
+# reaches the OS keychain, and cryptography encrypts the key file where there is
+# no keychain. `bailey doctor` still imports only the standard library (its
+# keychain check imports keyring when it runs, and reports one it cannot load).
+dependencies = [
+    "starlette>=1.10,<2",
+    "uvicorn>=0.54",
+    "keyring>=25.7",
+    "cryptography>=45",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -32,8 +39,9 @@ dev = [
     "ruff>=0.6",
     "mypy==2.4.0",
     # Validates the solution format's schema and its case table in the tests.
-    # A development tool only: the package itself stays the standard library.
     "jsonschema>=4.23",
+    # Starlette's TestClient, which drives the app in the tests.
+    "httpx2>=2.16",
 ]
 
 [project.scripts]
@@ -62,7 +70,8 @@ select = ["E", "F", "I", "B", "UP", "S"]
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101", "S603"]
+# S105 and S106: the tests' keys, passphrases and tokens are made up for them.
+"tests/*" = ["S101", "S603", "S105", "S106"]
 
 # py.typed ships in the wheel, which tells every consumer's type checker to
 # trust these annotations, so they are checked as strictly as the other Sigrix
