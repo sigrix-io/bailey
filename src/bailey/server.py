@@ -32,6 +32,7 @@ import shlex
 import signal
 import socket
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -435,6 +436,18 @@ def _with_usage(records: list[dict[str, Any]], usage: dict[str, Any], estimate: 
     return records
 
 
+def command_line(words: Sequence[str], system: str | None = None) -> str:
+    """A command as the person's own shell would write it: cmd's quoting on Windows, a POSIX shell's elsewhere.
+
+    ``shlex`` quotes for a POSIX shell alone, and on Windows it wraps every path with a
+    backslash in single quotes, which no Windows shell reads as quoting.
+    """
+
+    if (system or os.name) == "nt":
+        return subprocess.list2cmdline(list(words))
+    return shlex.join(words)
+
+
 def _tools_view(state: AppState, assistant_id: str, made: Assistant) -> dict[str, Any]:
     """The assistant's Tools panel: each server, its tools with the writes marked, and its variables."""
 
@@ -453,7 +466,7 @@ def _tools_view(state: AppState, assistant_id: str, made: Assistant) -> dict[str
             {
                 "name": server.name,
                 "remote": server.remote,
-                "launch": server.url if server.remote else shlex.join([server.command, *server.args]),
+                "launch": server.url if server.remote else command_line([server.command, *server.args]),
                 "declared": server.tools is not None,
                 "tools": [{"name": tool, "writes": tool in server.write_tools} for tool in server.tools or ()],
                 "variables": variables,

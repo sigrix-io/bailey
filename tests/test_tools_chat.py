@@ -23,7 +23,7 @@ from starlette.testclient import TestClient
 
 from bailey.agent import DECLINED
 from bailey.keys import KeychainKeys
-from bailey.server import AppState, build_app
+from bailey.server import AppState, build_app, command_line
 from bailey.solutions import Assistant, Server, Skill, zip_solution
 from bailey.store import Store
 from bailey.tools import SANDBOX_NOTICE, SIGRIX_TOKEN, SIGRIX_TOKEN_KEY, variable_key
@@ -324,3 +324,24 @@ def test_deleting_an_assistant_takes_its_tool_values_grants_and_running_servers(
     assert store.grants(assistant_id) == []
     assert keychain.get_password("bailey", kept) is None
     assert not state.tools.running(assistant_id), "its server stopped with it"
+
+
+@pytest.mark.parametrize(
+    ("system", "words", "shown"),
+    [
+        ("posix", ["uvx", "shop-mcp", "--name", "My Shop"], "uvx shop-mcp --name 'My Shop'"),
+        (
+            "nt",
+            [r"C:\hostedtoolcache\Python\python.exe", r"D:\a\bailey\tests\tool_servers\mailbox.py"],
+            r"C:\hostedtoolcache\Python\python.exe D:\a\bailey\tests\tool_servers\mailbox.py",
+        ),
+        (
+            "nt",
+            [r"C:\Program Files\nodejs\npx.cmd", "-y", "shop-mcp"],
+            r'"C:\Program Files\nodejs\npx.cmd" -y shop-mcp',
+        ),
+    ],
+    ids=["posix", "windows-paths", "windows-space"],
+)
+def test_a_launch_is_shown_as_the_persons_own_shell_would_write_it(system: str, words: list[str], shown: str) -> None:
+    assert command_line(words, system) == shown
