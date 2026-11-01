@@ -32,6 +32,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from bailey.core import load as load_core
 from bailey.solutions import Server
 
 __all__ = [
@@ -205,6 +206,7 @@ class ToolHost:
             return started
 
     async def _start(self, server: Server, env: Mapping[str, str]) -> Any:
+        load_core()
         from fastmcp.client.transports import StdioTransport
         from pydantic_ai.mcp import MCPToolset
 

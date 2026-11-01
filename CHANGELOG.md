@@ -212,6 +212,11 @@ described in `VERSIONING.md`.
 
 ### Fixed
 
+- A first message sent while the agent core was still loading in the background could
+  fail with a server error. Reading the conversation imported PydanticAI's messages beside
+  the background import, and two threads importing one package through different modules
+  can deadlock in Python's import system. Every import of the core now goes through
+  `bailey.core.load`, in one order, so a second thread waits for the first.
 - A skill's frontmatter value wrapped over indented lines, as an editor wraps a long
   description, now reads whole. A plain value was cut to its first line, and a quoted one
   refused the import. A blank line inside the value is a line break, as YAML reads it.

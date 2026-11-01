@@ -33,11 +33,14 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
+from bailey.core import load
+
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
 
 # The agent core's types are imported where they are converted, not here: the server
 # reads and shows conversations without loading the agent core, which takes seconds.
+# They are imported through bailey.core.load, which keeps a first import to one thread.
 
 FORMAT = "bailey-message/1"
 
@@ -82,6 +85,7 @@ def to_records(
     working, which nothing later in a conversation needs, and its signed form is a
     provider's."""
 
+    load()
     from pydantic_ai.messages import (
         ModelRequest,
         ModelResponse,
@@ -159,6 +163,7 @@ def to_history(records: Sequence[dict[str, Any]]) -> list[ModelMessage]:
     this Bailey does not know is refused rather than half read.
     """
 
+    load()
     from pydantic_ai.messages import (
         ModelRequest,
         ModelRequestPart,

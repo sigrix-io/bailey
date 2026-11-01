@@ -57,6 +57,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from bailey import __version__
 from bailey.conversations import notice_record, pending, shown, shown_text, to_history, to_records, user_record
+from bailey.core import load as load_core
 from bailey.keys import (
     FILE_NAME,
     EncryptedFileKeys,
@@ -1094,7 +1095,9 @@ def build_app(state: AppState) -> ASGIApp:
 
         async def stream() -> AsyncIterator[bytes]:
             # Imported here: the agent core takes seconds to load, which a start of the app
-            # should not wait for. serve() loads it in the background once the server is up.
+            # should not wait for. serve() loads it in the background once the server is up,
+            # and the request's own preparation has loaded it by now (to_history).
+            load_core()
             from bailey.agent import answer
 
             try:
@@ -1316,12 +1319,10 @@ def _warm_up() -> None:
     """Load the agent core and the tool host's libraries in the background, so the first
     message does not wait seconds for them (about two, and one more for the MCP ones)."""
 
-    # A failure here surfaces, with its sentence, when a message needs the core.
+    # A failure here surfaces, with its sentence, when a message needs the core. A message
+    # that comes first imports through the same door rather than beside it (bailey.core).
     with contextlib.suppress(Exception):
-        import fastmcp.client.transports  # noqa: F401
-        import pydantic_ai.mcp  # noqa: F401
-
-        import bailey.agent  # noqa: F401
+        load_core()
 
 
 def _open_when_ready(server: uvicorn.Server, launch: str, out: TextIO) -> None:
