@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "writing-editor",
+  "description": "An editor for your own writing: it proofreads it and makes it shorter, and says what it changed.",
+  "extensions": {
+    "org.sigrix": {
+      "assistant": "assistant.json"
+    }
+  }
+}

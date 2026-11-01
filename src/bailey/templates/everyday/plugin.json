@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "everyday-helper",
+  "description": "A general assistant for everyday writing: it summarises what you give it and drafts emails.",
+  "extensions": {
+    "org.sigrix": {
+      "assistant": "assistant.json"
+    }
+  }
+}

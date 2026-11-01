@@ -19,6 +19,7 @@
 
     <nav class="nav" id="nav" aria-label="Bailey" hidden>
       <button type="button" class="nav-item" data-view="chat" aria-current="page">Chat</button>
+      <button type="button" class="nav-item" data-view="assistants">Assistants</button>
       <button type="button" class="nav-item" data-view="settings">Settings</button>
     </nav>
 
@@ -34,14 +35,83 @@
         <p>Run <code>uvx bailey</code> again, or open the address it printed in its terminal.</p>
       </section>
 
-      <section class="view" data-panel="chat" hidden aria-labelledby="chat-title">
-        <h1 id="chat-title">Chat</h1>
-        <div class="empty">
-          <p class="empty-title">No assistant yet.</p>
-          <p id="chat-next">
-            This build is Bailey's frame: its settings work, and chat arrives with the next part.
-          </p>
+      <section class="view view-chat" data-panel="chat" hidden aria-labelledby="chat-title">
+        <div class="chat-head">
+          <h1 id="chat-title" class="sr-only">Chat</h1>
+          <label for="assistant-pick">Assistant</label>
+          <select id="assistant-pick"></select>
+          <button type="button" class="quiet" id="new-conversation">New conversation</button>
         </div>
+        <p class="notice-card" id="setup-needed" hidden>
+          <span id="setup-needed-text"></span>
+          <button type="button" class="quiet" id="open-settings">Open Settings</button>
+        </p>
+        <div class="chat-body">
+          <nav class="conversations" aria-label="Conversations">
+            <ul id="conversation-list"></ul>
+          </nav>
+          <div class="thread">
+            <div class="messages" id="messages"></div>
+            <div class="starters" id="starters"></div>
+            <form class="composer" id="composer" novalidate>
+              <label for="message" class="sr-only">Message</label>
+              <textarea id="message" rows="3" placeholder="Write a message. Enter sends; Shift+Enter starts a new line."></textarea>
+              <button type="submit" id="send">Send</button>
+            </form>
+            <p class="status" id="chat-status" role="status"></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-panel="assistants" hidden aria-labelledby="assistants-title">
+        <h1 id="assistants-title">Assistants</h1>
+        <div class="card">
+          <ul class="assistant-list" id="assistant-list"></ul>
+          <div class="actions new-assistant">
+            <label for="template-pick">New from a template</label>
+            <select id="template-pick"></select>
+            <button type="button" id="create-assistant">Create</button>
+            <label class="file-button" for="import-file">Import a solution (.zip)</label>
+            <input type="file" id="import-file" accept=".zip,application/zip" class="sr-only">
+          </div>
+          <p class="status" id="assistants-status" role="status"></p>
+        </div>
+
+        <form class="card" id="assistant-form" novalidate hidden>
+          <h2 id="assistant-form-title">Edit</h2>
+          <div class="field">
+            <label for="assistant-name">Title</label>
+            <input id="assistant-name" type="text" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="assistant-description">Description</label>
+            <input id="assistant-description" type="text" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="assistant-instructions">Instructions</label>
+            <textarea id="assistant-instructions" rows="8"></textarea>
+            <p class="hint">Always in front of the model: what the assistant does, and when to load each skill.</p>
+          </div>
+          <div class="field">
+            <label for="assistant-persona">Voice</label>
+            <textarea id="assistant-persona" rows="3"></textarea>
+          </div>
+          <div class="field">
+            <label for="assistant-starters">Starters, one per line</label>
+            <textarea id="assistant-starters" rows="3"></textarea>
+          </div>
+          <fieldset>
+            <legend>Skills</legend>
+            <p class="hint">The model sees each skill's name and description, and loads its instructions only when a request needs it.</p>
+            <div id="skill-list"></div>
+            <button type="button" class="quiet" id="add-skill">Add a skill</button>
+          </fieldset>
+          <div class="actions">
+            <button type="submit">Save the assistant</button>
+            <button type="button" class="quiet" id="close-assistant">Close</button>
+          </div>
+          <p class="status" id="assistant-form-status" role="status"></p>
+        </form>
       </section>
 
       <section class="view" data-panel="settings" hidden aria-labelledby="settings-title">
@@ -52,6 +122,11 @@
             <legend>AI provider</legend>
             <div class="choices" id="provider-choices"></div>
           </fieldset>
+          <div class="field" id="model-field" hidden>
+            <label for="model">Model</label>
+            <input id="model" name="model" type="text" autocomplete="off" spellcheck="false">
+            <p class="hint" id="model-hint"></p>
+          </div>
           <div class="field" id="address-field" hidden>
             <label for="address">Server address</label>
             <input id="address" name="address" type="url" autocomplete="off" spellcheck="false"

@@ -26,11 +26,20 @@ classifiers = [
 # reaches the OS keychain, and cryptography encrypts the key file where there is
 # no keychain. `bailey doctor` still imports only the standard library (its
 # keychain check imports keyring when it runs, and reports one it cannot load).
+#
+# The agent core is PydanticAI and the two provider SDKs, pinned exactly, at the
+# versions S1's spike measured (docs/spikes/0001-agent-core-and-local-index.md):
+# its API moves between minor versions, so a bump lands only once the contract
+# tests in tests/test_agent_contract.py pass on it. The MCP extras arrive with
+# the tool host.
 dependencies = [
     "starlette>=1.10,<2",
     "uvicorn>=0.54",
     "keyring>=25.7",
     "cryptography>=45",
+    "pydantic-ai-slim[anthropic,openai]==2.56.0",
+    "anthropic==1.13.0",
+    "openai==3.31.0",
 ]
 
 [project.optional-dependencies]

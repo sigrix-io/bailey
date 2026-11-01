@@ -180,3 +180,25 @@ def test_the_address_it_prints_names_only_this_computer(tmp_path: Path) -> None:
         assert addresses and all(address.startswith("http://127.0.0.1:") for address in addresses)
     finally:
         bailey.stop()
+
+
+def test_the_server_starts_without_loading_the_agent_core() -> None:
+    """PydanticAI and its SDKs take about two seconds to import. The server loads them when
+    a message needs them, and warms them in the background once it is up, so a start of
+    the app never waits for them."""
+
+    import subprocess
+    import sys
+
+    from running import SRC
+
+    probe = "import sys, bailey.server; print(sorted(m for m in ('pydantic_ai', 'anthropic', 'openai') if m in sys.modules))"
+    completed = subprocess.run(
+        [sys.executable, "-c", probe],
+        env={**os.environ, "PYTHONPATH": str(SRC), "PYTHONDONTWRITEBYTECODE": "1"},
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert completed.stdout.strip() == "[]", completed.stderr

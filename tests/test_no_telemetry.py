@@ -2,9 +2,11 @@
 
 Python's audit hooks see every connection a process opens and every name it looks up,
 whatever library asks. The app runs under a hook that writes each one down, every route
-it serves is exercised, and the test fails on any address that is not loopback. Story S6
-adds the one exception the rule allows, the provider the user chose; until then there is
-none. A canary run plants an outbound connection first, so a recorder that records
+it serves is exercised, and the test fails on any address that is not loopback. The one
+exception the rule allows is the provider the person chose: the chat run below has it
+on this computer too (the emulated providers, as an OpenAI-compatible server), so even
+a whole chat through the agent core, its SDKs and its price data connects to nothing
+else. A canary run plants an outbound connection first, so a recorder that records
 nothing cannot pass for an app that sends nothing.
 """
 
@@ -15,6 +17,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import emulated_providers as emulator
 from running import Running
 
 PASSPHRASE = "correct horse battery"
@@ -62,6 +65,21 @@ def outbound(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [event for event in events if "host" in event and not _is_loopback(event["host"])]
 
 
+def _chat(bailey: Running) -> None:
+    """A whole chat with the default assistant, on a provider served from this computer."""
+
+    provider = emulator.serve_in_background()
+    settings = {"provider": "openai-compatible", "address": provider + "/local/v1", "model": "qwen3:8b"}
+    assert bailey.call("PUT", "/api/settings", settings)[0] == 200
+    status, conversation = bailey.call("POST", "/api/conversations", {})
+    assert status == 200
+    status, streamed = bailey.call(
+        "POST", f"/api/conversations/{conversation['id']}/messages", {"text": "Please summarise this: rain at noon."}
+    )
+    assert status == 200 and '"type": "done"' in streamed, streamed
+    assert '"name": "summarise"' in streamed
+
+
 def _run(tmp_path: Path, mode: str) -> list[dict[str, Any]]:
     recorder = tmp_path / "recorder.py"
     recorder.write_text(_RECORDER, encoding="utf-8")
@@ -86,6 +104,8 @@ def _run(tmp_path: Path, mode: str) -> list[dict[str, Any]]:
             bailey.call("GET", "/api/settings", token=None),
         ]
         assert [status for status, _ in exercised] == [200] * 10 + [401]
+        if mode == "chat":
+            _chat(bailey)
     finally:
         bailey.stop()
     if not log.exists():
@@ -100,4 +120,10 @@ def test_the_recorder_catches_a_planted_outbound_connection(tmp_path: Path) -> N
 
 def test_the_app_connects_to_nothing_but_this_computer(tmp_path: Path) -> None:
     events = _run(tmp_path, "app")
+    assert outbound(events) == []
+
+
+def test_a_whole_chat_connects_to_nothing_but_this_computer_and_the_chosen_provider(tmp_path: Path) -> None:
+    events = _run(tmp_path, "chat")
+    assert any(event.get("event") == "socket.connect" for event in events), "the canary: the chat reached its provider"
     assert outbound(events) == []

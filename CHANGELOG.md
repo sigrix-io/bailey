@@ -8,6 +8,42 @@ described in `VERSIONING.md`.
 
 ### Added
 
+- Chat and the agent core (story S6 of 0.1). An assistant answers on Anthropic (the
+  Messages API), OpenAI (the Responses API) or any OpenAI-compatible server, local models
+  included (Chat Completions), with the person's own key, and the answer streams into
+  the page as text. The core is PydanticAI 2.56.0 with `anthropic` 1.13.0 and `openai`
+  3.31.0, all pinned exactly at the versions S1's spike measured; the base URL is always
+  passed, so a shell's `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` never redirects a key,
+  and PydanticAI's banner is off. The server loads the core only to answer, and warms it
+  in the background once it is up, so starting the app waits for none of it.
+- The context: the assistant's instructions and voice, then each skill's name and
+  one-line description, and nothing more of any skill. A skill's body and its small
+  `references/` files reach the model only when it calls `load_skill` for that skill.
+  On Anthropic the instructions are cached as a stable prefix
+  (`anthropic_cache_instructions`).
+- Each answer ends with a usage line: tokens in and out, and an estimated cost in US
+  dollars, labelled as an estimate, from the price data PydanticAI ships with. Nothing
+  fetches newer prices; a model the data does not know, or a local one, shows tokens
+  alone.
+- Assistants. A first start gets the default one, *Everyday helper*, with two skills,
+  *summarise* and *draft-email*; a new one starts from a template (*Writing editor* is
+  the other), never an empty canvas. An assistant is edited as a form, chosen from the
+  chat, exported as a zip in the solution layout (`plugin.json`, `assistant.json`,
+  `skills/<name>/SKILL.md`), and imported from one. The templates are written in that
+  layout too, so one reader serves all three; an import is bounded in size, entries and
+  unpack ratio, and refuses a link or a path outside its folder, each with a sentence.
+- Conversations, stored in a format of Bailey's own, `bailey-message/1`, and converted to
+  and from PydanticAI's messages only at the edge (S1's ruling), so no stored history
+  depends on one library's schema. A run that fails leaves a notice in the conversation,
+  shown and never sent to a model.
+- Settings: the model, per provider. Anthropic starts on `claude-sonnet-5-5` and OpenAI
+  on `gpt-5-mini`; an OpenAI-compatible server takes the name it lists.
+- The contract tests S1's ruling asked for, on the spike's provider emulator, now in
+  `tests/emulated_providers.py`: an answer streams on all three protocols, an assistant
+  with two skills answers from the right one, and the other skill's body is in no request
+  at all. Every PydanticAI bump passes them before it lands. The no-telemetry test now
+  runs a whole chat, and still fails on any connection but the provider's.
+
 - The app's frame (story S5 of 0.1). `bailey` with no command starts a server on 127.0.0.1
   and opens the browser on an address that carries a token for this session; `--port`
   picks the port and `--no-browser` prints the address instead. Everything but the page
