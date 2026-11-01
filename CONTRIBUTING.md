@@ -2,8 +2,8 @@
 
 Thanks for looking. Bailey's first release is a single command, `bailey doctor`;
 the assistant itself is being built toward 0.1, and its frame (the local server,
-the page, settings and keys, and chat with assistants and their skills) is on
-`main`.
+the page, settings and keys, chat with assistants and their skills, and their
+tools) is on `main`.
 
 ## What fits now
 
@@ -33,6 +33,13 @@ the page, settings and keys, and chat with assistants and their skills) is on
 - A skill's body in every request. The model sees a skill's name and
   description, and its body arrives when `load_skill` asks for it; the contract
   tests fail when a body is sent unasked.
+- A tool server started any way but `bailey.tools`. FastMCP's `uvx` and `npx`
+  transports hand the child Bailey's whole environment; the tool host builds
+  each server on the base `StdioTransport` with only its named variables, and
+  `tests/test_tools.py` fails when a decoy secret reaches one.
+- A tool that changes something and runs without asking. A write, and any tool a
+  solution does not declare, waits for the person unless they allowed it always
+  for that assistant (`tests/test_tool_contract.py`).
 
 ## Working on it
 
@@ -49,8 +56,9 @@ out of your keychain. No test writes to a real keychain except
 
 Chat is tested on `tests/emulated_providers.py`, which speaks each provider's
 own wire protocol and refuses what the real services refuse, so no test needs a
-key. A PydanticAI or SDK version bump lands only once
-`tests/test_agent_contract.py` passes on it.
+key, and tools on `tests/tool_servers/mailbox.py`, a real stdio MCP server. A
+PydanticAI, SDK, FastMCP or MCP version bump lands only once
+`tests/test_agent_contract.py` and `tests/test_tool_contract.py` pass on it.
 
 Each doctor check takes what it probes as an argument, so a test can hand it a
 machine that lacks something. A new check comes with a test on both sides.

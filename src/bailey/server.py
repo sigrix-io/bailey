@@ -28,6 +28,7 @@ import contextlib
 import json
 import os
 import secrets
+import shlex
 import signal
 import socket
 import sqlite3
@@ -36,7 +37,7 @@ import threading
 import time
 import uuid
 import webbrowser
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
@@ -54,7 +55,7 @@ from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from bailey import __version__
-from bailey.conversations import notice_record, shown, to_history, to_records, user_record
+from bailey.conversations import notice_record, pending, shown, to_history, to_records, user_record
 from bailey.keys import (
     FILE_NAME,
     EncryptedFileKeys,
@@ -91,6 +92,15 @@ from bailey.solutions import (
     zip_solution,
 )
 from bailey.store import STORE_FILE, NewerStore, Store
+from bailey.tools import (
+    SANDBOX_NOTICE,
+    SIGRIX_TOKEN,
+    ToolHost,
+    ToolServerFailed,
+    environment_for,
+    missing_variables,
+    variable_key,
+)
 
 CSP = (
     "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; "
@@ -131,6 +141,12 @@ MAX_MESSAGE_CHARACTERS = 200_000
 #: A conversation is named after its first message, cut at a word to about this length.
 TITLE_LENGTH = 60
 
+#: The longest value Bailey keeps for a tool server's variable.
+MAX_VARIABLE_VALUE = 8192
+
+#: The answers a person gives a tool call that asks first.
+ANSWERS = ("once", "always", "no")
+
 NOT_FROM_THE_PAGE = (
     "This request did not come from Bailey's page. Open Bailey at the address it printed when it started."
 )
@@ -147,6 +163,8 @@ class AppState:
     base_urls: Mapping[str, str] = field(default_factory=dict)
     #: Conversations with an answer still coming, which take no second message until it ends.
     running: set[str] = field(default_factory=set)
+    #: Each assistant's MCP servers, started at the first message that needs them and kept running.
+    tools: ToolHost = field(default_factory=ToolHost)
 
 
 class Refusal(Exception):
@@ -333,6 +351,7 @@ def _assistants_view(state: AppState) -> dict[str, Any]:
                 "description": record.get("description") or "",
                 "skills": [skill["name"] for skill in record.get("skills") or []],
                 "starters": list(record.get("starters") or []),
+                "servers": [server["name"] for server in record.get("servers") or []],
             }
         )
     templates = []
@@ -360,6 +379,102 @@ def _without_the_prompt(records: list[dict[str, Any]], text: str) -> list[dict[s
 
 def _event(data: dict[str, Any]) -> bytes:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n".encode()
+
+
+def _listed(items: Sequence[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _tool_environments(state: AppState, assistant_id: str, made: Assistant) -> dict[str, dict[str, str]]:
+    """What each of the assistant's local servers receives, or a refusal naming a variable still missing."""
+
+    environments: dict[str, dict[str, str]] = {}
+    for server in made.servers:
+        if server.remote:
+            continue
+        values = {
+            name: value
+            for name in server.env
+            if (value := state.keys.get(variable_key(assistant_id, server.name, name)))
+        }
+        missing = missing_variables(server, values)
+        if missing:
+            them = "it" if len(missing) == 1 else "them"
+            raise Refusal(
+                409,
+                f"The {server.name} tool server needs {_listed(missing)}. Give {them} in this assistant's Tools, "
+                "under Assistants.",
+            )
+        environments[server.name] = environment_for(server, values, os.environ)
+    return environments
+
+
+def _granted(state: AppState, assistant_id: str) -> set[tuple[str, str]]:
+    return {(grant["server"], grant["tool"]) for grant in state.store.grants(assistant_id)}
+
+
+def _records(
+    messages: Sequence[Any],
+    connection: Connection,
+    servers: Mapping[str, str],
+    asked: Collection[str],
+    text: str | None,
+) -> list[dict[str, Any]]:
+    records = to_records(messages, provider=connection.provider, model=connection.model, servers=servers, asked=asked)
+    return _without_the_prompt(records, text) if text is not None else records
+
+
+def _with_usage(records: list[dict[str, Any]], usage: dict[str, Any], estimate: Any) -> list[dict[str, Any]]:
+    """The run's usage on its last answer, where the page reads it."""
+
+    for record in reversed(records):
+        if record["role"] == "assistant":
+            record["usage"] = usage
+            record["estimate"] = estimate
+            break
+    return records
+
+
+def _tools_view(state: AppState, assistant_id: str, made: Assistant) -> dict[str, Any]:
+    """The assistant's Tools panel: each server, its tools with the writes marked, and its variables."""
+
+    locked = state.keys.locked
+    servers = []
+    for server in made.servers:
+        variables = [
+            {
+                "name": name,
+                "saved": not locked and bool(state.keys.get(variable_key(assistant_id, server.name, name))),
+                "shared": name == SIGRIX_TOKEN,
+            }
+            for name in server.env
+        ]
+        servers.append(
+            {
+                "name": server.name,
+                "remote": server.remote,
+                "launch": server.url if server.remote else shlex.join([server.command, *server.args]),
+                "declared": server.tools is not None,
+                "tools": [{"name": tool, "writes": tool in server.write_tools} for tool in server.tools or ()],
+                "variables": variables,
+            }
+        )
+    return {
+        "id": assistant_id,
+        "notice": SANDBOX_NOTICE,
+        "locked": locked,
+        "servers": servers,
+        "grants": state.store.grants(assistant_id),
+    }
+
+
+def _grants_view(state: AppState) -> dict[str, Any]:
+    titles = {assistant_id: str(record.get("title") or "") for assistant_id, record in state.store.list_assistants()}
+    return {
+        "grants": [
+            {**grant, "assistant_title": titles.get(grant["assistant_id"], "")} for grant in state.store.grants()
+        ]
+    }
 
 
 def _file_keys(state: AppState) -> EncryptedFileKeys:
@@ -507,7 +622,10 @@ def build_app(state: AppState) -> ASGIApp:
             _ensure_an_assistant(state)
             assistant_id = uuid.uuid4().hex
             state.store.put_assistant(assistant_id, made.as_dict())
-            return {"id": assistant_id, **_assistants_view(state)}
+            # A solution with tool servers runs programs on this computer, and the person
+            # is told so as it arrives (design §4).
+            notice = SANDBOX_NOTICE if any(not server.remote for server in made.servers) else ""
+            return {"id": assistant_id, "notice": notice, **_assistants_view(state)}
 
         return JSONResponse(await run_in_threadpool(save))
 
@@ -554,11 +672,83 @@ def build_app(state: AppState) -> ASGIApp:
         assistant_id = request.path_params["assistant_id"]
 
         def delete() -> dict[str, Any]:
-            _assistant(state, assistant_id)
+            made = _assistant(state, assistant_id)
             state.store.delete_assistant(assistant_id)
+            # Its tool servers' values go with it. The Sigrix token is every Sigrix server's,
+            # and stays; locked keys keep theirs, unreadable to anyone without the passphrase.
+            for server in made.servers:
+                for name in server.env:
+                    if name != SIGRIX_TOKEN:
+                        with contextlib.suppress(KeysLocked):
+                            state.keys.delete(variable_key(assistant_id, server.name, name))
             return _assistants_view(state)
 
-        return JSONResponse(await run_in_threadpool(delete))
+        view = await run_in_threadpool(delete)
+        await state.tools.stop(assistant_id)
+        return JSONResponse(view)
+
+    # -- tools -------------------------------------------------------------------
+
+    @_answers
+    async def read_tools(request: Request) -> Response:
+        assistant_id = request.path_params["assistant_id"]
+
+        def read() -> dict[str, Any]:
+            return _tools_view(state, assistant_id, _assistant(state, assistant_id))
+
+        return JSONResponse(await run_in_threadpool(read))
+
+    def _named_variable(request: Request) -> tuple[str, Assistant, str, str]:
+        assistant_id = request.path_params["assistant_id"]
+        made = _assistant(state, assistant_id)
+        server = made.server(request.path_params["server"])
+        if server is None or server.remote:
+            raise Refusal(404, "This assistant has no tool server by that name.")
+        name = request.path_params["variable"]
+        if name not in server.env:
+            raise Refusal(404, f"The {server.name} tool server names no variable {name}.")
+        return assistant_id, made, server.name, name
+
+    @_answers
+    async def save_variable(request: Request) -> Response:
+        value = (await _json_body(request)).get("value")
+        if not isinstance(value, str) or not value.strip():
+            raise Refusal(400, "Give the variable a value.")
+        if len(value) > MAX_VARIABLE_VALUE:
+            raise Refusal(400, f"That value is longer than the {MAX_VARIABLE_VALUE:,} characters Bailey keeps.")
+
+        def save() -> dict[str, Any]:
+            assistant_id, made, server, name = _named_variable(request)
+            state.keys.set(variable_key(assistant_id, server, name), value.strip())
+            return _tools_view(state, assistant_id, made)
+
+        return JSONResponse(await run_in_threadpool(save))
+
+    @_answers
+    async def remove_variable(request: Request) -> Response:
+        def remove() -> dict[str, Any]:
+            assistant_id, made, server, name = _named_variable(request)
+            state.keys.delete(variable_key(assistant_id, server, name))
+            return _tools_view(state, assistant_id, made)
+
+        return JSONResponse(await run_in_threadpool(remove))
+
+    @_answers
+    async def list_grants(request: Request) -> Response:
+        return JSONResponse(await run_in_threadpool(_grants_view, state))
+
+    @_answers
+    async def revoke_grant(request: Request) -> Response:
+        body = await _json_body(request)
+        named = [body.get(key) for key in ("assistant", "server", "tool")]
+        if not all(isinstance(value, str) and value for value in named):
+            raise Refusal(400, "Name the assistant, the server and the tool to ask about again.")
+
+        def revoke() -> dict[str, Any]:
+            state.store.revoke(str(named[0]), str(named[1]), str(named[2]))
+            return _grants_view(state)
+
+        return JSONResponse(await run_in_threadpool(revoke))
 
     # -- conversations -----------------------------------------------------------
 
@@ -596,12 +786,14 @@ def build_app(state: AppState) -> ASGIApp:
 
         def read() -> dict[str, Any]:
             found = _conversation(conversation_id)
+            records = state.store.messages(conversation_id)
             return {
                 "id": conversation_id,
                 "assistant": found["assistant_id"],
                 "title": found["title"],
                 "running": conversation_id in state.running,
-                "messages": shown(state.store.messages(conversation_id)),
+                "messages": shown(records),
+                "pending": pending(records),
             }
 
         return JSONResponse(await run_in_threadpool(read))
@@ -620,6 +812,79 @@ def build_app(state: AppState) -> ASGIApp:
 
         return JSONResponse(await run_in_threadpool(delete))
 
+    def _stream(
+        conversation_id: str,
+        assistant_id: str,
+        made: Assistant,
+        connection: Connection,
+        history: list[Any],
+        environments: dict[str, dict[str, str]],
+        *,
+        text: str | None = None,
+        decisions: dict[str, bool] | None = None,
+    ) -> StreamingResponse:
+        """One run of the agent as server-sent events, its records stored as it ends.
+
+        A message starts it with ``text``; an answer to the questions a run stopped on
+        resumes it with ``decisions``. Either way it starts the assistant's tool servers
+        when they are not running, and a failed run keeps the records of its last whole
+        step, so a tool that ran is never asked about again.
+        """
+
+        granted = _granted(state, assistant_id)
+
+        async def stream() -> AsyncIterator[bytes]:
+            # Imported here: the agent core takes seconds to load, which a start of the app
+            # should not wait for. serve() loads it in the background once the server is up.
+            from bailey.agent import answer
+
+            try:
+                toolsets: dict[str, Any] = {}
+                if environments:
+                    if not state.tools.running(assistant_id):
+                        yield _event({"type": "status", "text": "Starting this assistant's tools…"})
+                    try:
+                        toolsets = await state.tools.toolsets(assistant_id, made.servers, environments)
+                    except ToolServerFailed as failure:
+                        await run_in_threadpool(
+                            state.store.append_messages, conversation_id, [notice_record(str(failure))]
+                        )
+                        yield _event({"type": "error", "message": str(failure)})
+                        return
+                async for event in answer(
+                    connection, made, history, text, toolsets=toolsets, granted=granted, decisions=decisions
+                ):
+                    if event["type"] == "done":
+                        records = _with_usage(
+                            _records(event["messages"], connection, event["servers"], event["asked"], text),
+                            event["usage"],
+                            event["estimate"],
+                        )
+                        await run_in_threadpool(state.store.append_messages, conversation_id, records)
+                        yield _event(
+                            {
+                                "type": "done",
+                                "usage": event["usage"],
+                                "estimate": event["estimate"],
+                                "model": connection.model,
+                                "paused": bool(event["asked"]),
+                            }
+                        )
+                    elif event["type"] == "error":
+                        records = _records(event["messages"], connection, event["servers"], (), text)
+                        records.append(notice_record(event["message"]))
+                        await run_in_threadpool(state.store.append_messages, conversation_id, records)
+                        if environments:
+                            # A server may have stopped answering; the next message starts it again.
+                            await state.tools.stop(assistant_id)
+                        yield _event({"type": "error", "message": event["message"]})
+                    else:
+                        yield _event(event)
+            finally:
+                state.running.discard(conversation_id)
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
+
     @_answers
     async def send_message(request: Request) -> Response:
         conversation_id = request.path_params["conversation_id"]
@@ -633,58 +898,72 @@ def build_app(state: AppState) -> ASGIApp:
             )
         text = text.strip()
 
-        def prepare() -> tuple[Connection, Assistant, list[Any]]:
+        def prepare() -> tuple[str, Assistant, Connection, list[Any], dict[str, dict[str, str]]]:
             found = _conversation(conversation_id)
-            made = _assistant(state, found["assistant_id"])
+            assistant_id = found["assistant_id"]
+            made = _assistant(state, assistant_id)
             connection = _connection(state)
             if conversation_id in state.running:
                 raise Refusal(409, "An answer is still coming in this conversation. Wait for it to finish.")
             stored = state.store.messages(conversation_id)
+            if pending(stored):
+                raise Refusal(409, "Answer the question above first: allow the tool call, or decline it.")
+            environments = _tool_environments(state, assistant_id, made)
             history = to_history(stored)
             state.store.append_messages(conversation_id, [user_record(text)])
             if not stored:
                 state.store.rename_conversation(conversation_id, _title_for(text))
             state.running.add(conversation_id)
-            return connection, made, history
+            return assistant_id, made, connection, history, environments
 
-        connection, made, history = await run_in_threadpool(prepare)
+        assistant_id, made, connection, history, environments = await run_in_threadpool(prepare)
+        return _stream(conversation_id, assistant_id, made, connection, history, environments, text=text)
 
-        async def stream() -> AsyncIterator[bytes]:
-            # Imported here: the agent core takes seconds to load, which a start of the app
-            # should not wait for. serve() loads it in the background once the server is up.
-            from bailey.agent import answer
+    @_answers
+    async def answer_questions(request: Request) -> Response:
+        """The person's answer to each tool call a run stopped on: once, always for this assistant, or no."""
 
-            try:
-                async for event in answer(connection, made, history, text):
-                    if event["type"] == "done":
-                        records = _without_the_prompt(
-                            to_records(event["messages"], provider=connection.provider, model=connection.model), text
-                        )
-                        if records:
-                            records[-1]["usage"] = event["usage"]
-                            records[-1]["estimate"] = event["estimate"]
-                        await run_in_threadpool(state.store.append_messages, conversation_id, records)
-                        yield _event(
-                            {
-                                "type": "done",
-                                "usage": event["usage"],
-                                "estimate": event["estimate"],
-                                "model": connection.model,
-                            }
-                        )
-                    elif event["type"] == "error":
-                        await run_in_threadpool(
-                            state.store.append_messages, conversation_id, [notice_record(event["message"])]
-                        )
-                        yield _event(event)
-                    else:
-                        yield _event(event)
-            finally:
-                state.running.discard(conversation_id)
+        conversation_id = request.path_params["conversation_id"]
+        answers = (await _json_body(request)).get("answers")
+        if not isinstance(answers, dict) or not all(
+            isinstance(call_id, str) and given in ANSWERS for call_id, given in answers.items()
+        ):
+            raise Refusal(400, "Answer each question with once, always or no.")
 
-        return StreamingResponse(stream(), media_type="text/event-stream")
+        def prepare() -> tuple[str, Assistant, Connection, list[Any], dict[str, dict[str, str]], dict[str, bool]]:
+            found = _conversation(conversation_id)
+            assistant_id = found["assistant_id"]
+            made = _assistant(state, assistant_id)
+            connection = _connection(state)
+            if conversation_id in state.running:
+                raise Refusal(409, "An answer is still coming in this conversation. Wait for it to finish.")
+            stored = state.store.messages(conversation_id)
+            waiting = pending(stored)
+            if not waiting:
+                raise Refusal(409, "Nothing in this conversation is waiting for an answer.")
+            if set(answers) != {call["id"] for call in waiting}:
+                raise Refusal(400, "Answer every question this conversation is waiting on, and only those.")
+            environments = _tool_environments(state, assistant_id, made)
+            for call in waiting:
+                if answers[call["id"]] == "always" and call["server"]:
+                    state.store.grant(assistant_id, call["server"], call["tool"])
+            state.running.add(conversation_id)
+            decisions = {call_id: given != "no" for call_id, given in answers.items()}
+            return assistant_id, made, connection, to_history(stored), environments, decisions
+
+        assistant_id, made, connection, history, environments, decisions = await run_in_threadpool(prepare)
+        return _stream(conversation_id, assistant_id, made, connection, history, environments, decisions=decisions)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app: Starlette) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            # Bailey's tool servers stop with it, rather than wait for their input to close.
+            await state.tools.close()
 
     app = Starlette(
+        lifespan=lifespan,
         routes=[
             Route("/", index),
             Route("/static/{name}", asset),
@@ -704,12 +983,22 @@ def build_app(state: AppState) -> ASGIApp:
             Route("/api/assistants/{assistant_id}", delete_assistant, methods=["DELETE"]),
             Route("/api/assistants/{assistant_id}/use", use_assistant, methods=["POST"]),
             Route("/api/assistants/{assistant_id}/export", export_assistant, methods=["GET"]),
+            Route("/api/assistants/{assistant_id}/tools", read_tools, methods=["GET"]),
+            Route("/api/assistants/{assistant_id}/tools/{server}/variables/{variable}", save_variable, methods=["PUT"]),
+            Route(
+                "/api/assistants/{assistant_id}/tools/{server}/variables/{variable}",
+                remove_variable,
+                methods=["DELETE"],
+            ),
+            Route("/api/grants", list_grants, methods=["GET"]),
+            Route("/api/grants/revoke", revoke_grant, methods=["POST"]),
             Route("/api/conversations", list_conversations, methods=["GET"]),
             Route("/api/conversations", create_conversation, methods=["POST"]),
             Route("/api/conversations/{conversation_id}", read_conversation, methods=["GET"]),
             Route("/api/conversations/{conversation_id}", delete_conversation, methods=["DELETE"]),
             Route("/api/conversations/{conversation_id}/messages", send_message, methods=["POST"]),
-        ]
+            Route("/api/conversations/{conversation_id}/answers", answer_questions, methods=["POST"]),
+        ],
     )
     return Guard(app, state.token)
 
@@ -739,10 +1028,14 @@ def _stop_on_terminate(signum: int, frame: FrameType | None) -> None:
 
 
 def _warm_up() -> None:
-    """Load the agent core in the background, so the first message does not wait seconds for it."""
+    """Load the agent core and the tool host's libraries in the background, so the first
+    message does not wait seconds for them (about two, and one more for the MCP ones)."""
 
     # A failure here surfaces, with its sentence, when a message needs the core.
     with contextlib.suppress(Exception):
+        import fastmcp.client.transports  # noqa: F401
+        import pydantic_ai.mcp  # noqa: F401
+
         import bailey.agent  # noqa: F401
 
 
@@ -802,7 +1095,7 @@ def serve(
         launch = f"{address}#token={token}"
         state = AppState(token=token, store=store, keys=keys, data_folder=folder)
         config = uvicorn.Config(
-            build_app(state), log_level="warning", access_log=False, lifespan="off", server_header=False
+            build_app(state), log_level="warning", access_log=False, lifespan="on", server_header=False
         )
         server = uvicorn.Server(config)
         out.write(

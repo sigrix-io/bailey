@@ -10,8 +10,9 @@
   var STORAGE_KEY = "bailey-session";
   var token = takeToken();
   var settings = null;
-  var chat = { assistants: null, conversation: null, streaming: false };
+  var chat = { assistants: null, conversation: null, streaming: false, pending: [], lastReply: null };
   var editing = null;
+  var toolsOf = null;
 
   function byId(id) {
     return document.getElementById(id);
@@ -134,6 +135,11 @@
         say(name === "chat" ? "chat-status" : "assistants-status", error.message, true);
       });
     }
+    if (name === "settings") {
+      loadGrants().catch(function (error) {
+        say("grants-status", error.message, true);
+      });
+    }
   }
 
   // Chat --------------------------------------------------------------------
@@ -150,9 +156,23 @@
     return null;
   }
 
+  // The list of assistants is replaced by each answer that carries it. A load asked for
+  // before a change (an import, say) can answer after it, so a load is dropped when a
+  // newer list has been taken since it was asked for.
+  var assistantsSeen = 0;
+
+  function adoptAssistants(view) {
+    assistantsSeen += 1;
+    chat.assistants = view;
+  }
+
   function loadAssistants() {
+    var asked = assistantsSeen;
     return api("GET", "/api/assistants").then(function (view) {
-      chat.assistants = view;
+      if (asked !== assistantsSeen) {
+        return null;
+      }
+      adoptAssistants(view);
       drawAssistantPick();
       drawAssistantList();
       drawTemplates();
@@ -211,6 +231,7 @@
     return api("GET", "/api/conversations/" + encodeURIComponent(id)).then(function (conversation) {
       chat.conversation = conversation.id;
       drawMessages(conversation.messages);
+      drawQuestion(conversation.pending || []);
       var buttons = byId("conversation-list").querySelectorAll("button");
       for (var index = 0; index < buttons.length; index += 1) {
         buttons[index].removeAttribute("aria-current");
@@ -249,18 +270,101 @@
 
   function appendEntry(entry) {
     var bubble = element("div", "message message-" + entry.role);
+    var tools = element("ul", "message-tools");
     var text = element("p", "message-text", entry.text || "");
     var meta = element("p", "message-meta", entry.role === "assistant" ? metaLine(entry) : "");
-    bubble.append(text, meta);
+    bubble.append(tools, text, meta);
     byId("messages").append(bubble);
     bubble.scrollIntoView({ block: "end" });
-    return { bubble: bubble, text: text, meta: meta };
+    var made = {
+      bubble: bubble,
+      text: text,
+      meta: meta,
+      tools: tools,
+      lines: {},
+      skills: (entry.skills || []).slice(),
+      usage: entry.usage || null,
+      estimate: entry.estimate || null,
+    };
+    (entry.tools || []).forEach(function (call) {
+      showTool(made, call);
+    });
+    return made;
+  }
+
+  // One line per call of a server's tool, saying how it went, as text.
+  function toolWords(call) {
+    var named = call.tool + (call.server ? " (" + call.server + ")" : "");
+    if (call.outcome === "success") {
+      return call.asked ? "You allowed " + named + ", and it ran." : "Used " + named + ".";
+    }
+    if (call.outcome === "denied") {
+      return "You declined " + named + ". It did not run.";
+    }
+    if (call.outcome === "waiting") {
+      return named + " is waiting for your answer.";
+    }
+    if (call.outcome === "failed") {
+      return named + " failed.";
+    }
+    if (call.outcome === "retry") {
+      return named + " was given another try.";
+    }
+    if (call.outcome === "interrupted") {
+      return named + " was interrupted.";
+    }
+    return "Using " + named + "…";
+  }
+
+  function showTool(reply, call) {
+    var known = reply.lines[call.id];
+    if (known) {
+      if (call.outcome !== undefined) {
+        known.call.outcome = call.outcome;
+      }
+      if (call.asked) {
+        known.call.asked = true;
+      }
+    } else {
+      known = { call: call, line: element("li", "tool-line") };
+      reply.lines[call.id] = known;
+      reply.tools.append(known.line);
+    }
+    known.line.textContent = toolWords(known.call);
+    known.line.className = "tool-line tool-" + (known.call.outcome || "running");
   }
 
   function drawMessages(entries) {
     byId("messages").replaceChildren();
-    entries.forEach(appendEntry);
+    chat.lastReply = null;
+    entries.forEach(function (entry) {
+      var drawn = appendEntry(entry);
+      // A run that stopped to ask goes on in its own reply, after a reload too.
+      chat.lastReply = entry.role === "assistant" ? drawn : null;
+    });
     drawStarters(entries.length === 0);
+  }
+
+  // A run that stopped to ask and the run its answer resumed share one reply, and their
+  // usage is added, as the server adds it for a reloaded conversation.
+  function addedUsage(before, more) {
+    if (!before) {
+      return more;
+    }
+    var sum = {};
+    Object.keys(before)
+      .concat(Object.keys(more))
+      .forEach(function (key) {
+        sum[key] = (before[key] || 0) + (more[key] || 0);
+      });
+    return sum;
+  }
+
+  function addedEstimate(before, more) {
+    if (!before || !more) {
+      return more || before;
+    }
+    return { usd: String(Number(before.usd) + Number(more.usd)) };
   }
 
   function drawStarters(show) {
@@ -294,6 +398,7 @@
     return api("POST", "/api/conversations", {}).then(function (conversation) {
       chat.conversation = conversation.id;
       drawMessages([]);
+      drawQuestion([]);
       return api("GET", "/api/conversations").then(function (answer) {
         drawConversationList(answer.conversations);
         return conversation.id;
@@ -335,7 +440,6 @@
     var ready = chat.conversation ? Promise.resolve(chat.conversation) : startConversation();
     var mine = null;
     var reply = null;
-    var skills = [];
     ready
       .then(function (conversationId) {
         drawStarters(false);
@@ -358,24 +462,7 @@
           .catch(function () {
             return null;
           });
-        return readEvents(response, function (event) {
-          if (event.type === "text") {
-            reply.text.textContent += event.text;
-            reply.meta.textContent = skills.length ? "Skill: " + skills.join(", ") : "";
-          } else if (event.type === "skill") {
-            if (skills.indexOf(event.name) === -1) {
-              skills.push(event.name);
-            }
-            reply.meta.textContent = "Loading the " + event.name + " skill…";
-          } else if (event.type === "done") {
-            reply.meta.textContent = metaLine({ skills: skills, usage: event.usage, estimate: event.estimate });
-            say("chat-status", "Answer finished.", false);
-          } else if (event.type === "error") {
-            reply.bubble.className = "message message-notice";
-            reply.text.textContent = event.message;
-            reply.meta.textContent = "";
-          }
-        });
+        return streamInto(reply, response);
       })
       .catch(function (error) {
         // Refused before anything was sent: the message comes back to the box.
@@ -390,10 +477,137 @@
       })
       .then(function () {
         chat.streaming = false;
-        byId("send").disabled = false;
+        byId("send").disabled = chat.pending.length > 0;
         return api("GET", "/api/conversations").then(function (answer) {
           drawConversationList(answer.conversations);
         });
+      })
+      .catch(function () {
+        return null;
+      });
+  }
+
+  // The events of one run, drawn into its reply as they arrive.
+  function streamInto(reply, response) {
+    chat.lastReply = reply;
+    return readEvents(response, function (event) {
+      if (event.type === "text") {
+        reply.text.textContent += event.text;
+        reply.meta.textContent = reply.skills.length ? "Skill: " + reply.skills.join(", ") : "";
+      } else if (event.type === "skill") {
+        if (reply.skills.indexOf(event.name) === -1) {
+          reply.skills.push(event.name);
+        }
+        reply.meta.textContent = "Loading the " + event.name + " skill…";
+      } else if (event.type === "status") {
+        reply.meta.textContent = event.text;
+      } else if (event.type === "tool") {
+        showTool(reply, { id: event.id, tool: event.tool, server: event.server, outcome: "" });
+        reply.meta.textContent = "Using " + event.tool + "…";
+      } else if (event.type === "tool_result") {
+        showTool(reply, { id: event.id, outcome: event.outcome });
+      } else if (event.type === "approval") {
+        event.calls.forEach(function (call) {
+          showTool(reply, { id: call.id, tool: call.tool, server: call.server, outcome: "waiting", asked: true });
+        });
+        chat.pending = event.calls;
+      } else if (event.type === "done") {
+        reply.usage = addedUsage(reply.usage, event.usage);
+        reply.estimate = addedEstimate(reply.estimate, event.estimate);
+        reply.meta.textContent = metaLine({ skills: reply.skills, usage: reply.usage, estimate: reply.estimate });
+        if (event.paused) {
+          drawQuestion(chat.pending);
+        } else {
+          say("chat-status", "Answer finished.", false);
+        }
+      } else if (event.type === "error") {
+        var notice = appendEntry({ role: "notice", text: event.message });
+        notice.bubble.scrollIntoView({ block: "end" });
+        if (!reply.text.textContent && !reply.tools.childElementCount) {
+          reply.bubble.remove();
+        }
+        reply.meta.textContent = "";
+      }
+    });
+  }
+
+  // A run that reached a tool which asks first stops there. The question waits in the
+  // conversation, and the message box waits with it, until the person answers each call.
+  function drawQuestion(calls) {
+    chat.pending = calls || [];
+    var open = chat.pending.length > 0;
+    var list = byId("question-calls");
+    list.replaceChildren();
+    byId("question").hidden = !open;
+    byId("message").disabled = open;
+    byId("send").disabled = open || chat.streaming;
+    if (!open) {
+      return;
+    }
+    var assistant = activeAssistant();
+    var who = assistant ? assistant.title : "The assistant";
+    var answers = {};
+    byId("question-title").textContent = chat.pending.length === 1 ? "Allow this tool to run?" : "Allow these tools to run?";
+    chat.pending.forEach(function (call) {
+      var item = element("div", "question-call");
+      item.append(element("p", "question-text", who + " wants to run " + call.tool + (call.server ? " on " + call.server : "") + ", with:"));
+      item.append(element("pre", "question-args", JSON.stringify(call.args || {}, null, 2)));
+      var actions = element("div", "actions");
+      var choices = [
+        ["Allow once", "once", ""],
+        ["Always for this assistant", "always", "quiet"],
+        ["No", "no", "quiet"],
+      ];
+      choices.forEach(function (choice) {
+        actions.append(
+          button(choice[0], choice[2], function () {
+            answers[call.id] = choice[1];
+            var buttons = actions.querySelectorAll("button");
+            for (var index = 0; index < buttons.length; index += 1) {
+              buttons[index].disabled = true;
+            }
+            item.append(
+              element(
+                "p",
+                "hint",
+                choice[1] === "no" ? "Declined." : choice[1] === "always" ? "Allowed, now and from now on." : "Allowed this once."
+              )
+            );
+            if (Object.keys(answers).length === chat.pending.length) {
+              answerQuestions(answers);
+            }
+          })
+        );
+      });
+      item.append(actions);
+      list.append(item);
+    });
+    say("chat-status", "Answer the question above the message box to go on.", false);
+  }
+
+  function answerQuestions(answers) {
+    if (chat.streaming || !chat.conversation) {
+      return;
+    }
+    chat.streaming = true;
+    var last = byId("messages").lastElementChild;
+    var reply = chat.lastReply && chat.lastReply.bubble === last ? chat.lastReply : appendEntry({ role: "assistant", text: "" });
+    reply.meta.textContent = "Going on…";
+    request("POST", "/api/conversations/" + encodeURIComponent(chat.conversation) + "/answers", { answers: answers })
+      .then(function (response) {
+        if (!response.ok) {
+          return refusal(response);
+        }
+        drawQuestion([]);
+        return streamInto(reply, response);
+      })
+      .catch(function (error) {
+        say("chat-status", error.message, true);
+        return openConversation(chat.conversation);
+      })
+      .then(function () {
+        chat.streaming = false;
+        byId("send").disabled = chat.pending.length > 0;
       })
       .catch(function () {
         return null;
@@ -451,7 +665,7 @@
   function useAssistant(id) {
     return api("POST", "/api/assistants/" + encodeURIComponent(id) + "/use")
       .then(function (view) {
-        chat.assistants = view;
+        adoptAssistants(view);
         chat.conversation = null;
         drawAssistantPick();
         drawAssistantList();
@@ -489,6 +703,9 @@
         words.append(element("p", "hint", assistant.description));
       }
       words.append(element("p", "hint", assistant.skills.length ? "Skills: " + assistant.skills.join(", ") : "No skills"));
+      if (assistant.servers && assistant.servers.length) {
+        words.append(element("p", "hint", "Tool servers: " + assistant.servers.join(", ")));
+      }
       var actions = element("div", "actions");
       if (assistant.id !== chat.assistants.active) {
         actions.append(button("Use", "", function () {
@@ -498,6 +715,11 @@
       actions.append(button("Edit", "quiet", function () {
         editAssistant(assistant.id);
       }));
+      if (assistant.servers && assistant.servers.length) {
+        actions.append(button("Tools", "quiet", function () {
+          openTools(assistant.id);
+        }));
+      }
       actions.append(button("Export", "quiet", function () {
         exportAssistant(assistant.id);
       }));
@@ -519,7 +741,7 @@
   byId("create-assistant").addEventListener("click", function () {
     api("POST", "/api/assistants", { template: byId("template-pick").value })
       .then(function (view) {
-        chat.assistants = view;
+        adoptAssistants(view);
         drawAssistantPick();
         drawAssistantList();
         say("assistants-status", "Made. Edit it below, then use it.", false);
@@ -542,10 +764,14 @@
         return api("POST", "/api/assistants/import", data, "application/zip");
       })
       .then(function (view) {
-        chat.assistants = view;
+        adoptAssistants(view);
         drawAssistantPick();
         drawAssistantList();
-        say("assistants-status", "Imported " + file.name + ".", false);
+        say("assistants-status", "Imported " + file.name + "." + (view.notice ? " " + view.notice : ""), false);
+        if (view.notice) {
+          return openTools(view.id);
+        }
+        return null;
       })
       .catch(function (error) {
         say("assistants-status", error.message, true);
@@ -584,9 +810,12 @@
     }
     api("DELETE", "/api/assistants/" + encodeURIComponent(assistant.id))
       .then(function (view) {
-        chat.assistants = view;
+        adoptAssistants(view);
         if (editing === assistant.id) {
           closeEditor();
+        }
+        if (toolsOf === assistant.id) {
+          closeTools();
         }
         drawAssistantPick();
         drawAssistantList();
@@ -696,7 +925,7 @@
         return api("GET", "/api/assistants");
       })
       .then(function (view) {
-        chat.assistants = view;
+        adoptAssistants(view);
         drawAssistantPick();
         drawAssistantList();
       })
@@ -704,6 +933,142 @@
         say("assistant-form-status", error.message, true);
       });
   });
+
+  // Tools ---------------------------------------------------------------------
+
+  function assistantTitle(id) {
+    var found = (chat.assistants ? chat.assistants.assistants : []).filter(function (assistant) {
+      return assistant.id === id;
+    });
+    return found.length ? found[0].title : "this assistant";
+  }
+
+  function openTools(id) {
+    return api("GET", "/api/assistants/" + encodeURIComponent(id) + "/tools")
+      .then(drawTools)
+      .catch(function (error) {
+        say("assistants-status", error.message, true);
+      });
+  }
+
+  function closeTools() {
+    toolsOf = null;
+    byId("tools-card").hidden = true;
+  }
+
+  function drawTools(panel) {
+    toolsOf = panel.id;
+    byId("tools-title").textContent = "Tools of " + assistantTitle(panel.id);
+    byId("tools-notice").textContent = panel.notice;
+    var box = byId("tools-servers");
+    box.replaceChildren();
+    if (panel.locked) {
+      box.append(element("p", "hint", "Your keys are locked. Unlock them in Settings to give a server its values."));
+    }
+    panel.servers.forEach(function (server) {
+      var card = element("div", "tool-server");
+      card.append(element("h3", "", server.name));
+      if (server.remote) {
+        card.append(element("p", "hint", "A remote server at " + server.launch + ". This version of Bailey does not connect to remote servers."));
+        box.append(card);
+        return;
+      }
+      card.append(element("p", "hint", "Starts with: " + server.launch));
+      if (server.declared) {
+        var tools = element("ul", "tool-list");
+        server.tools.forEach(function (tool) {
+          tools.append(element("li", "", tool.name + (tool.writes ? ": changes something, so it asks first" : ": reads, so it runs without asking")));
+        });
+        card.append(tools);
+        card.append(element("p", "hint", "A tool this list leaves out asks before it runs."));
+      } else {
+        card.append(element("p", "hint", "Its solution declares none of its tools, so each asks before it runs."));
+      }
+      server.variables.forEach(function (variable) {
+        card.append(variableRow(panel.id, server.name, variable));
+      });
+      box.append(card);
+    });
+    byId("tools-card").hidden = false;
+    byId("tools-card").scrollIntoView({ block: "start" });
+  }
+
+  function variableRow(assistantId, serverName, variable) {
+    var row = element("form", "variable");
+    row.noValidate = true;
+    var field = element("div", "field");
+    var id = "variable-" + serverName + "-" + variable.name;
+    var caption = element("label", "", variable.name + (variable.shared ? ", your Sigrix token, shared by every server Sigrix delivers" : ""));
+    caption.htmlFor = id;
+    var input = element("input");
+    input.type = "password";
+    input.id = id;
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.placeholder = variable.saved ? "Saved. Type a new value to replace it." : "Not given yet";
+    field.append(caption, input);
+    var actions = element("div", "actions");
+    var save = element("button", "", "Save");
+    save.type = "submit";
+    actions.append(save);
+    var path = "/api/assistants/" + encodeURIComponent(assistantId) + "/tools/" + encodeURIComponent(serverName) +
+      "/variables/" + encodeURIComponent(variable.name);
+    if (variable.saved) {
+      actions.append(button("Remove", "quiet", function () {
+        api("DELETE", path)
+          .then(function (panel) {
+            drawTools(panel);
+            say("tools-status", "Removed " + variable.name + ".", false);
+          })
+          .catch(function (error) {
+            say("tools-status", error.message, true);
+          });
+      }));
+    }
+    row.append(field, actions);
+    row.addEventListener("submit", function (event) {
+      event.preventDefault();
+      api("PUT", path, { value: input.value })
+        .then(function (panel) {
+          drawTools(panel);
+          say("tools-status", "Saved " + variable.name + " in " + (settings && settings.keys ? settings.keys.where : "your keys") + ".", false);
+        })
+        .catch(function (error) {
+          say("tools-status", error.message, true);
+        });
+    });
+    return row;
+  }
+
+  byId("close-tools").addEventListener("click", closeTools);
+
+  function drawGrants(view) {
+    var list = byId("grant-list");
+    list.replaceChildren();
+    if (!view.grants.length) {
+      list.append(element("li", "hint", "None. Every tool that changes something asks before it runs."));
+      return;
+    }
+    view.grants.forEach(function (grant) {
+      var item = element("li", "grant");
+      item.append(element("span", "", grant.tool + " on " + grant.server + ", for " + (grant.assistant_title || "an assistant")));
+      item.append(button("Ask again", "quiet", function () {
+        api("POST", "/api/grants/revoke", { assistant: grant.assistant_id, server: grant.server, tool: grant.tool })
+          .then(function (answer) {
+            drawGrants(answer);
+            say("grants-status", grant.tool + " asks again before it runs.", false);
+          })
+          .catch(function (error) {
+            say("grants-status", error.message, true);
+          });
+      }));
+      list.append(item);
+    });
+  }
+
+  function loadGrants() {
+    return api("GET", "/api/grants").then(drawGrants);
+  }
 
   // Settings ------------------------------------------------------------------
 

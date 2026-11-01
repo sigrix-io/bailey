@@ -8,6 +8,11 @@ A solution is a folder, or a zip of one::
     skills/<name>/SKILL.md           each other skill, loaded when the conversation needs it
     skills/<name>/references/<file>  a skill's small text files, loaded with it
     persona.md                       the voice, when the writer keeps it apart from the instructions
+    mcp.json                         its MCP servers: how each starts, and the names of its variables
+
+``assistant.json``'s ``tools`` says, for each server, which tools the writer declared
+and which of those write. Bailey asks before a write, and treats as a write any tool a
+server lists that its declaration does not, and every tool of a server with none.
 
 Bailey's templates are written this way, an assistant exports this way, and an import
 reads it, so one reader serves all three. It is the wider reader ``schemas/README.md``
@@ -34,6 +39,7 @@ ASSISTANT_FILE = "assistant.json"
 FORMAT_VERSION = "0.1"
 KNOWN_MAJOR = "0"
 PERSONA_FILE = "persona.md"
+MCP_FILE = "mcp.json"
 
 PLUGIN_NAME = re.compile(r"^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$")
 SKILL_NAME = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
@@ -46,6 +52,14 @@ MAX_FILE_BYTES = 512 * 1024
 MAX_ENTRIES = 300
 MAX_COMPRESSION_RATIO = 100
 MAX_REFERENCE_BYTES = 100 * 1024
+MAX_SERVERS = 20
+MAX_ARGS = 100
+MAX_ARG_CHARACTERS = 4096
+MAX_VARIABLES = 50
+
+#: A server's name in ``mcp.json``, and a variable's name in its ``env``.
+SERVER_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$")
+VARIABLE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
 #: The fixed time written into every zip entry, so one assistant always exports to the same bytes.
 _ZIP_TIME = (2026, 1, 1, 0, 0, 0)
@@ -82,6 +96,69 @@ class Skill:
 
 
 @dataclass(frozen=True)
+class Server:
+    """One MCP server a solution names: how it starts, and what its tools do.
+
+    ``env`` holds the names of the variables it reads, never their values: a package
+    carries names only (design §2.1, rule 1), and each value comes from the person, by
+    way of the keychain. ``tools`` is the writer's declaration, or ``None`` where
+    ``assistant.json`` declares nothing for this server.
+    """
+
+    name: str
+    command: str = ""
+    args: tuple[str, ...] = ()
+    env: tuple[str, ...] = ()
+    #: A remote server's address and transport. Bailey 0.1 lists one and does not connect to it.
+    url: str = ""
+    transport: str = ""
+    tools: tuple[str, ...] | None = None
+    write_tools: tuple[str, ...] = ()
+
+    @property
+    def remote(self) -> bool:
+        return bool(self.url)
+
+    def asks_before(self, tool: str) -> bool:
+        """Whether calling ``tool`` waits for the person: a declared write, or a tool nobody declared.
+
+        Postern calls a write declaration advisory to the client and load-bearing for the
+        person, and the store does not verify one yet (sigrix-io/sigrix#5053), so a server
+        listing a tool its declaration leaves out gets no benefit of the doubt.
+        """
+
+        if self.tools is None or tool not in self.tools:
+            return True
+        return tool in self.write_tools
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "command": self.command,
+            "args": list(self.args),
+            "env": list(self.env),
+            "url": self.url,
+            "transport": self.transport,
+            "tools": None if self.tools is None else list(self.tools),
+            "write_tools": list(self.write_tools),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Server:
+        tools = data.get("tools")
+        return cls(
+            name=str(data["name"]),
+            command=str(data.get("command") or ""),
+            args=tuple(str(arg) for arg in data.get("args") or ()),
+            env=tuple(str(name) for name in data.get("env") or ()),
+            url=str(data.get("url") or ""),
+            transport=str(data.get("transport") or ""),
+            tools=None if tools is None else tuple(str(tool) for tool in tools),
+            write_tools=tuple(str(tool) for tool in data.get("write_tools") or ()),
+        )
+
+
+@dataclass(frozen=True)
 class Assistant:
     name: str
     title: str
@@ -91,9 +168,13 @@ class Assistant:
     persona: str = ""
     starters: tuple[str, ...] = ()
     skills: tuple[Skill, ...] = field(default_factory=tuple)
+    servers: tuple[Server, ...] = field(default_factory=tuple)
 
     def skill(self, name: str) -> Skill | None:
         return next((skill for skill in self.skills if skill.name == name), None)
+
+    def server(self, name: str) -> Server | None:
+        return next((server for server in self.servers if server.name == name), None)
 
     def as_dict(self) -> dict[str, Any]:
         """Bailey's own record of an assistant, as the local store keeps it."""
@@ -107,6 +188,7 @@ class Assistant:
             "persona": self.persona,
             "starters": list(self.starters),
             "skills": [skill.as_dict() for skill in self.skills],
+            "servers": [server.as_dict() for server in self.servers],
         }
 
     @classmethod
@@ -121,6 +203,7 @@ class Assistant:
             persona=str(data.get("persona") or ""),
             starters=tuple(str(starter) for starter in data.get("starters") or ()),
             skills=tuple(Skill.from_dict(skill) for skill in data.get("skills") or ()),
+            servers=tuple(Server.from_dict(server) for server in data.get("servers") or ()),
         )
 
 
@@ -249,6 +332,92 @@ def _read_skill(files: Mapping[str, bytes], path: object, where: str) -> Skill:
     return Skill(name=folder, description=description, body=body.strip(), references=tuple(references))
 
 
+def _tool_names(value: object, where: str) -> tuple[str, ...]:
+    if not isinstance(value, list) or not all(isinstance(item, str) and 0 < len(item) <= 128 for item in value):
+        raise SolutionRefused(f"{where} should be a list of tool names.")
+    return tuple(dict.fromkeys(value))
+
+
+def _read_declaration(value: object, where: str) -> tuple[tuple[str, ...] | None, tuple[str, ...]]:
+    if value is None:
+        return None, ()
+    if not isinstance(value, dict):
+        raise SolutionRefused(f"{where} should be an object with tools and write_tools.")
+    tools = _tool_names(value.get("tools") or [], f"{where}, tools")
+    writes = _tool_names(value.get("write_tools") or [], f"{where}, write_tools")
+    # A write left out of ``tools`` is undeclared, and an undeclared tool asks anyway, so
+    # dropping it from ``write_tools`` changes nothing that asks and keeps an export valid.
+    return tools, tuple(tool for tool in writes if tool in tools)
+
+
+def _read_server(name: str, entry: Mapping[str, Any], declaration: object, where: str, declared_at: str) -> Server:
+    tools, write_tools = _read_declaration(declaration, f"{declared_at}, tools, {name}")
+    command = entry.get("command")
+    url = entry.get("url")
+    if command is None and isinstance(url, str) and url.strip():
+        if not url.strip().startswith(("https://", "http://")):
+            raise SolutionRefused(f"{where}: a remote server's url is an http or https address.")
+        transport = entry.get("type")
+        return Server(
+            name,
+            url=url.strip(),
+            transport=transport if isinstance(transport, str) else "",
+            tools=tools,
+            write_tools=write_tools,
+        )
+    if not isinstance(command, str) or not command.strip():
+        raise SolutionRefused(f"{where} has no command to start it and no url to reach it.")
+    args = entry.get("args") or []
+    if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
+        raise SolutionRefused(f"{where}: args should be a list of text.")
+    if len(command) > MAX_ARG_CHARACTERS or len(args) > MAX_ARGS or any(len(arg) > MAX_ARG_CHARACTERS for arg in args):
+        raise SolutionRefused(f"{where} starts with a command longer than Bailey runs.")
+    env = entry.get("env") or {}
+    if not isinstance(env, dict):
+        raise SolutionRefused(f"{where}: env should name each variable the server reads, which the person fills in.")
+    if len(env) > MAX_VARIABLES:
+        raise SolutionRefused(f"{where} names {len(env)} variables; Bailey fills {MAX_VARIABLES} at most.")
+    for variable in env:
+        if not VARIABLE_NAME.fullmatch(variable):
+            raise SolutionRefused(f"{where}: {variable[:60]!r} is not a variable's name.")
+    # Only the names are kept. A value in a package is never what a server receives: the
+    # person gives each one, and the keychain keeps it.
+    return Server(name, command=command.strip(), args=tuple(args), env=tuple(env), tools=tools, write_tools=write_tools)
+
+
+def _read_servers(files: Mapping[str, bytes], document: Mapping[str, Any], document_path: str) -> tuple[Server, ...]:
+    """The servers the MCP configuration names, each with the declaration ``tools`` gives it."""
+
+    config_path = document.get("mcp")
+    if config_path is None:
+        return ()
+    if not isinstance(config_path, str) or not _FILE_PATH.fullmatch(config_path):
+        raise SolutionRefused(f"{document_path}'s mcp is not a file inside the package.")
+    try:
+        config = json.loads(_text(files, config_path))
+    except json.JSONDecodeError as error:
+        raise SolutionRefused(f"{config_path} is not JSON.") from error
+    entries = config.get("mcpServers") if isinstance(config, dict) else None
+    if not isinstance(entries, dict):
+        raise SolutionRefused(f"{config_path} has no mcpServers object, where an MCP configuration lists its servers.")
+    if len(entries) > MAX_SERVERS:
+        raise SolutionRefused(f"{config_path} names {len(entries)} servers; Bailey starts {MAX_SERVERS} at most.")
+    declared = document.get("tools") or {}
+    if not isinstance(declared, dict):
+        raise SolutionRefused(f"{document_path}'s tools should map each server to the tools it declares.")
+    servers: list[Server] = []
+    for name, entry in entries.items():
+        where = f"{config_path}, server {name[:64]!r}"
+        if not SERVER_NAME.fullmatch(name):
+            raise SolutionRefused(
+                f"{where}: a server's name is letters, digits, dots, hyphens and underscores, up to 64."
+            )
+        if not isinstance(entry, dict):
+            raise SolutionRefused(f"{where} should be an object.")
+        servers.append(_read_server(name, entry, declared.get(name), where, document_path))
+    return tuple(servers)
+
+
 def read_solution(files: Mapping[str, bytes]) -> Assistant:
     """The assistant a solution's files describe, or :class:`SolutionRefused` saying why not."""
 
@@ -315,6 +484,7 @@ def read_solution(files: Mapping[str, bytes]) -> Assistant:
         persona=persona,
         starters=tuple(item.strip() for item in starters),
         skills=tuple(skills),
+        servers=_read_servers(files, document, document_path),
     )
 
 
@@ -408,8 +578,8 @@ def assistant_from_form(form: Mapping[str, Any], previous: Assistant) -> Assista
     """The assistant the edit form describes, built on the one it edits.
 
     The instructions skill keeps its name and description; a skill keeps its reference
-    files while it keeps its name. Every field is checked, and one over its limit is
-    refused rather than cut.
+    files while it keeps its name; the servers are not the form's, and stay as they were.
+    Every field is checked, and one over its limit is refused rather than cut.
     """
 
     title = _field(form, "title", "The title", FORM_LIMITS["title"], required=True)
@@ -454,6 +624,7 @@ def assistant_from_form(form: Mapping[str, Any], previous: Assistant) -> Assista
         persona=persona,
         starters=tuple(starters),
         skills=tuple(skills),
+        servers=previous.servers,
     )
 
 
@@ -518,6 +689,25 @@ def solution_files(assistant: Assistant) -> dict[str, bytes]:
         document["starters"] = list(assistant.starters)
     if assistant.skills:
         document["skills"] = [{"name": skill.name, "path": put_skill(skill)} for skill in assistant.skills]
+    if assistant.servers:
+        entries: dict[str, Any] = {}
+        declarations: dict[str, Any] = {}
+        for server in assistant.servers:
+            entry: dict[str, Any]
+            if server.remote:
+                entry = {"type": server.transport, "url": server.url} if server.transport else {"url": server.url}
+            else:
+                entry = {"command": server.command, "args": list(server.args)}
+                if server.env:
+                    # Names only, each with an empty value for the person to fill, as Sigrix writes them.
+                    entry["env"] = dict.fromkeys(server.env, "")
+            entries[server.name] = entry
+            if server.tools is not None:
+                declarations[server.name] = {"tools": list(server.tools), "write_tools": list(server.write_tools)}
+        files[MCP_FILE] = (json.dumps({"mcpServers": entries}, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+        document["mcp"] = MCP_FILE
+        if declarations:
+            document["tools"] = declarations
     plugin: dict[str, Any] = {"$schema": PLUGIN_SCHEMA, "name": assistant.name}
     if assistant.description:
         plugin["description"] = assistant.description

@@ -11,6 +11,7 @@ import io
 import json
 import stat
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,9 @@ from bailey.solutions import (
     DEFAULT_TEMPLATE,
     FORM_LIMITS,
     MAX_REFERENCE_BYTES,
+    MAX_SERVERS,
     Assistant,
+    Server,
     Skill,
     SolutionRefused,
     assistant_from_form,
@@ -299,3 +302,138 @@ def test_a_skill_keeps_its_reference_files_while_it_keeps_its_name() -> None:
 def test_a_title_becomes_a_plugin_name() -> None:
     assert plugin_name("Shop Support 2.0!") == "shop-support-2-0"
     assert plugin_name("   ") == "assistant"
+
+
+# ---------------------------------------------------------------------------
+# MCP servers and their declarations (S7)
+# ---------------------------------------------------------------------------
+
+
+def _with_servers() -> Assistant:
+    return replace(
+        template(DEFAULT_TEMPLATE),
+        servers=(
+            Server(
+                "mailbox",
+                command="uvx",
+                args=("mailbox-mcp", "--folder", "Inbox"),
+                env=("MAILBOX_TOKEN",),
+                tools=("search_threads", "create_draft"),
+                write_tools=("create_draft",),
+            ),
+            Server("shop", command="uvx", args=("sigrix-launcher", "run", "acme/shop-tools"), env=("SIGRIX_TOKEN",)),
+            Server("docs", url="https://docs.example.com/mcp", transport="http"),
+        ),
+    )
+
+
+def _package_with(config: object, tools: object = None) -> dict[str, bytes]:
+    files = solution_files(template(DEFAULT_TEMPLATE))
+    document = json.loads(files["assistant.json"])
+    document["mcp"] = "mcp.json"
+    if tools is not None:
+        document["tools"] = tools
+    files["assistant.json"] = json.dumps(document).encode("utf-8")
+    files["mcp.json"] = config if isinstance(config, bytes) else json.dumps(config).encode("utf-8")
+    return files
+
+
+def test_a_solution_with_servers_exports_a_valid_document_and_imports_back_unchanged() -> None:
+    made = _with_servers()
+    files = solution_files(made)
+    document = json.loads(files["assistant.json"])
+    jsonschema.validate(document, SCHEMA)
+    assert document["mcp"] == "mcp.json"
+    assert document["tools"] == {
+        "mailbox": {"tools": ["search_threads", "create_draft"], "write_tools": ["create_draft"]}
+    }
+    config = json.loads(files["mcp.json"])["mcpServers"]
+    assert config["mailbox"] == {
+        "command": "uvx",
+        "args": ["mailbox-mcp", "--folder", "Inbox"],
+        "env": {"MAILBOX_TOKEN": ""},
+    }, "a variable is written by name, with an empty value for the person to fill"
+    assert config["docs"] == {"type": "http", "url": "https://docs.example.com/mcp"}
+    assert read_solution(files) == made
+    assert read_solution(unzip_solution(zip_solution(made))) == made
+    assert Assistant.from_dict(json.loads(json.dumps(made.as_dict()))) == made, "the stored record keeps the servers"
+
+
+def test_a_tool_asks_before_it_runs_unless_its_server_declares_it_a_read() -> None:
+    mailbox, shop, _ = _with_servers().servers
+    assert mailbox.asks_before("search_threads") is False, "a declared read runs without asking"
+    assert mailbox.asks_before("create_draft") is True, "a declared write asks"
+    assert mailbox.asks_before("delete_thread") is True, "a tool the declaration leaves out is a write"
+    assert shop.tools is None and shop.asks_before("anything") is True, "every tool of an undeclared server asks"
+
+
+def test_a_write_declared_outside_its_tools_still_asks_and_exports_valid() -> None:
+    config = {"mcpServers": {"mailbox": {"command": "uvx", "args": ["mailbox-mcp"]}}}
+    read = read_solution(_package_with(config, {"mailbox": {"tools": ["search_threads"], "write_tools": ["send"]}}))
+    (server,) = read.servers
+    assert server.asks_before("send") is True and server.asks_before("search_threads") is False
+    jsonschema.validate(json.loads(solution_files(read)["assistant.json"]), SCHEMA)
+
+
+def test_a_value_a_package_gives_a_variable_is_never_kept() -> None:
+    config = {
+        "mcpServers": {"shop": {"command": "uvx", "args": ["shop-mcp"], "env": {"SHOP_KEY": "sk-live-0123456789"}}}
+    }
+    read = read_solution(_package_with(config))
+    assert read.servers[0].env == ("SHOP_KEY",)
+    assert "sk-live-0123456789" not in json.dumps(read.as_dict())
+    assert json.loads(solution_files(read)["mcp.json"])["mcpServers"]["shop"]["env"] == {"SHOP_KEY": ""}
+
+
+def test_the_form_keeps_an_assistants_servers() -> None:
+    made = _with_servers()
+    form = form_of(made)
+    form["title"] = "Shop helper"
+    assert assistant_from_form(form, made).servers == made.servers
+
+
+@pytest.mark.parametrize(
+    ("config", "tools", "sentence"),
+    [
+        (b"not json", None, "mcp.json is not JSON"),
+        ({"servers": {}}, None, "has no mcpServers object"),
+        ({"mcpServers": {"a": {"args": ["x"]}}}, None, "has no command to start it and no url"),
+        ({"mcpServers": {"a": {"command": "uvx", "args": "x"}}}, None, "args should be a list of text"),
+        ({"mcpServers": {"a": {"command": "uvx", "env": ["KEY"]}}}, None, "env should name each variable"),
+        ({"mcpServers": {"a": {"command": "uvx", "env": {"NOT A NAME": ""}}}}, None, "is not a variable's name"),
+        ({"mcpServers": {"a b": {"command": "uvx"}}}, None, "a server's name is letters"),
+        ({"mcpServers": {"a": {"url": "file:///etc/passwd"}}}, None, "an http or https address"),
+        (
+            {"mcpServers": {f"s{i}": {"command": "uvx"} for i in range(MAX_SERVERS + 1)}},
+            None,
+            f"Bailey starts {MAX_SERVERS} at most",
+        ),
+        ({"mcpServers": {"a": {"command": "uvx"}}}, ["a"], "tools should map each server"),
+        ({"mcpServers": {"a": {"command": "uvx"}}}, {"a": {"tools": "search"}}, "should be a list of tool names"),
+    ],
+    ids=[
+        "not-json",
+        "no-mcp-servers",
+        "no-command",
+        "args-not-list",
+        "env-not-object",
+        "bad-variable",
+        "bad-server-name",
+        "not-http",
+        "too-many",
+        "tools-not-object",
+        "tools-not-list",
+    ],
+)
+def test_an_mcp_configuration_bailey_cannot_start_is_refused_with_a_sentence(
+    config: object, tools: object, sentence: str
+) -> None:
+    with pytest.raises(SolutionRefused, match=sentence):
+        read_solution(_package_with(config, tools))
+
+
+def test_an_mcp_file_the_package_names_but_does_not_carry_is_refused() -> None:
+    files = _package_with({"mcpServers": {}})
+    del files["mcp.json"]
+    with pytest.raises(SolutionRefused, match="names mcp.json, but does not carry it"):
+        read_solution(files)

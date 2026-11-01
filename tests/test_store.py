@@ -86,3 +86,24 @@ def test_the_next_migration_is_applied_on_open(tmp_path: Path, monkeypatch: pyte
         assert later.get_setting("kept") is True
     finally:
         later.close()
+
+
+def test_a_grant_is_kept_once_revoked_on_request_and_deleted_with_its_assistant(tmp_path: Path) -> None:
+    store = Store(tmp_path / "bailey.db")
+    try:
+        store.put_assistant("a1", {"format": "bailey-assistant/1"})
+        store.put_assistant("a2", {"format": "bailey-assistant/1"})
+        store.grant("a1", "mailbox", "create_draft")
+        store.grant("a1", "mailbox", "create_draft")
+        store.grant("a2", "mailbox", "create_draft")
+        assert [(g["assistant_id"], g["server"], g["tool"]) for g in store.grants("a1")] == [
+            ("a1", "mailbox", "create_draft")
+        ], "granting twice keeps one grant"
+        assert len(store.grants()) == 2
+        assert store.revoke("a1", "mailbox", "create_draft") is True
+        assert store.revoke("a1", "mailbox", "create_draft") is False, "nothing left to revoke"
+        store.grant("a1", "mailbox", "send")
+        store.delete_assistant("a1")
+        assert store.grants() == [g for g in store.grants() if g["assistant_id"] == "a2"] and len(store.grants()) == 1
+    finally:
+        store.close()

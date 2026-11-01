@@ -52,6 +52,10 @@
           </nav>
           <div class="thread">
             <div class="messages" id="messages"></div>
+            <section class="question" id="question" hidden aria-labelledby="question-title">
+              <h2 id="question-title">Allow this tool to run?</h2>
+              <div id="question-calls"></div>
+            </section>
             <div class="starters" id="starters"></div>
             <form class="composer" id="composer" novalidate>
               <label for="message" class="sr-only">Message</label>
@@ -112,6 +116,16 @@
           </div>
           <p class="status" id="assistant-form-status" role="status"></p>
         </form>
+
+        <section class="card" id="tools-card" hidden aria-labelledby="tools-title">
+          <h2 id="tools-title">Tools</h2>
+          <p class="notice-card" id="tools-notice"></p>
+          <div id="tools-servers"></div>
+          <div class="actions">
+            <button type="button" class="quiet" id="close-tools">Close</button>
+          </div>
+          <p class="status" id="tools-status" role="status"></p>
+        </section>
       </section>
 
       <section class="view" data-panel="settings" hidden aria-labelledby="settings-title">
@@ -183,6 +197,13 @@
             </div>
           </form>
           <p class="status" id="locked-status" role="status"></p>
+        </section>
+
+        <section class="card" id="grants-card" aria-labelledby="grants-title">
+          <h2 id="grants-title">Tools allowed without asking</h2>
+          <p class="hint">Each tool you allowed "always" for an assistant. Ask again, and it asks before it runs.</p>
+          <ul class="grant-list" id="grant-list"></ul>
+          <p class="status" id="grants-status" role="status"></p>
         </section>
 
         <p class="where" id="keys-where"></p>

@@ -513,6 +513,153 @@ textarea {
   min-height: 0;
 }
 
+/* Tools (S7): each call in the chat, the question a write asks, a server's panel. */
+
+.message-tools {
+  list-style: none;
+  margin: 0 0 0.4rem;
+  padding: 0;
+  font-size: 0.85rem;
+  color: var(--text-2);
+}
+
+.message-tools:empty {
+  display: none;
+}
+
+.tool-line {
+  overflow-wrap: anywhere;
+  padding-left: 1rem;
+  position: relative;
+}
+
+.tool-line::before {
+  content: "";
+  position: absolute;
+  left: 0.2rem;
+  top: 0.55em;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.tool-success::before {
+  background: var(--ok);
+}
+
+.tool-denied::before,
+.tool-failed::before {
+  background: var(--danger);
+}
+
+.tool-waiting {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tool-waiting::before {
+  background: var(--brand);
+}
+
+.question {
+  border: 2px solid var(--brand);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 0.75rem 1rem;
+}
+
+.question[hidden] {
+  display: none;
+}
+
+.question h2 {
+  font-size: 1rem;
+  margin: 0 0 0.5rem;
+}
+
+.question-call + .question-call {
+  border-top: 1px solid var(--line);
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+}
+
+.question-text {
+  margin: 0 0 0.4rem;
+  overflow-wrap: anywhere;
+}
+
+.question-args {
+  margin: 0 0 0.6rem;
+  padding: 0.5rem 0.75rem;
+  max-height: 14rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  font: 0.85rem/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.tool-server {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  margin: 0 0 0.75rem;
+}
+
+.tool-server h3 {
+  font-size: 1rem;
+  margin: 0 0 0.25rem;
+}
+
+.tool-server .hint {
+  overflow-wrap: anywhere;
+}
+
+.tool-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.variable {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.variable .field {
+  flex: 1 1 16rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.grant-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.grant {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.grant span {
+  min-width: 0;
+  flex: 1 1 16rem;
+}
+
 @media (max-width: 40rem) {
   .frame {
     grid-template-columns: minmax(0, 1fr);

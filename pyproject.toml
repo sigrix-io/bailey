@@ -30,16 +30,20 @@ classifiers = [
 # The agent core is PydanticAI and the two provider SDKs, pinned exactly, at the
 # versions S1's spike measured (docs/spikes/0001-agent-core-and-local-index.md):
 # its API moves between minor versions, so a bump lands only once the contract
-# tests in tests/test_agent_contract.py pass on it. The MCP extras arrive with
-# the tool host.
+# tests in tests/test_agent_contract.py and tests/test_tool_contract.py pass on
+# it. The tool host runs a solution's MCP servers through PydanticAI's MCP
+# toolset, which is built on FastMCP's client and the official MCP SDK, pinned
+# exactly at the spike's versions too.
 dependencies = [
     "starlette>=1.10,<2",
     "uvicorn>=0.54",
     "keyring>=25.7",
     "cryptography>=45",
-    "pydantic-ai-slim[anthropic,openai]==2.56.0",
+    "pydantic-ai-slim[anthropic,openai,mcp]==2.56.0",
     "anthropic==1.13.0",
     "openai==3.31.0",
+    "fastmcp-slim==4.1.0",
+    "mcp==2.3.0",
 ]
 
 [project.optional-dependencies]

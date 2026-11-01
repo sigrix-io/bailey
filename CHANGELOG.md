@@ -8,6 +8,41 @@ described in `VERSIONING.md`.
 
 ### Added
 
+- Tools (story S7 of 0.1). Each MCP server a solution's `mcp.json` names starts as its own
+  process over stdio, built on FastMCP's base `StdioTransport` rather than its `uvx` and
+  `npx` helpers, which hand a child the app's whole environment. A server receives the MCP
+  SDK's short default list (`HOME`, `PATH` and the like), each variable its `mcp.json`
+  names, filled from the keychain and never from Bailey's own environment or the package,
+  and the proxy and certificate variables Bailey has, so a `uvx` or `npx` server can
+  download itself behind a corporate proxy. A server starts at the first message that
+  needs it and keeps running between messages; it stops when its assistant or its values
+  change, when the assistant is deleted, and when Bailey stops. A remote server is listed
+  and not connected in this version.
+- Approval before a write. A read a server's declaration lists runs without asking, and
+  the chat shows each call as it happens. A write, a tool the declaration leaves out, and
+  every tool of a server with no declaration ask first: once, always for this assistant,
+  or no. "No" reaches the model as the tool's result. "Always" is kept per assistant,
+  server and tool, and Settings lists each with a way to ask again. A run that asks ends
+  there, and the question waits in the conversation, so it survives a reload and a
+  restart; the answer resumes the run. A run that fails after a tool ran keeps that
+  tool's result, so a write that happened is never asked about again.
+- Each assistant's Tools panel lists its servers, their tools with the writes marked, and
+  their variables, each saved or not, with a field to give it. `SIGRIX_TOKEN`, the runner
+  token of a server Sigrix delivers (`uvx sigrix-launcher run <seller>/<listing-id>`), is
+  kept once for every such server. The import and the panel say plainly that Bailey does
+  not sandbox a server beyond its environment.
+- The solution format: an import reads `mcp.json` and `assistant.json`'s `tools`, keeping
+  each variable's name and never its value, and an export writes them back, with an
+  empty value for each variable. The store's third migration keeps the "always" grants.
+- The contract tests for tools, on the provider emulator and a stdio mailbox server: the
+  read runs and the write asks, on all three protocols; a yes runs it and a no reaches
+  the model; a paused run is read back from the store and resumed by a new server
+  process; a read and a write in one reply are stored and resumed in a shape each
+  provider takes. A server sees only its named variables, with a decoy secret beside
+  them, and the no-telemetry test now runs a chat through a tool server too.
+- PydanticAI gains its `mcp` extra, with `fastmcp-slim` 4.1.0 and `mcp` 2.3.0 pinned
+  exactly, the versions the spike measured. They load after the server is up.
+
 - Chat and the agent core (story S6 of 0.1). An assistant answers on Anthropic (the
   Messages API), OpenAI (the Responses API) or any OpenAI-compatible server, local models
   included (Chat Completions), with the person's own key, and the answer streams into
@@ -117,6 +152,12 @@ described in `VERSIONING.md`.
   named beside it, and Dependabot keeps those pins and the dev tools current.
   CI ends in one `ci-passed` job for the branch ruleset to require. Nothing in
   the package changes.
+
+### Fixed
+
+- The Assistants view could lose an assistant just imported: a list asked for before the
+  import, answering after it, drew the list without it. A list answer older than the
+  latest change is now dropped.
 
 ## [0.0.1] — 2026-09-29
 

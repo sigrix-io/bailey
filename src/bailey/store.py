@@ -46,6 +46,12 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
         "CREATE TABLE messages (conversation_id TEXT NOT NULL, position INTEGER NOT NULL, record TEXT NOT NULL, "
         "PRIMARY KEY (conversation_id, position))",
     ),
+    # 3 (S7): the tools a person let an assistant run without asking ("Always for this
+    # assistant"), one row per assistant, server and tool, which Settings lists and revokes.
+    (
+        "CREATE TABLE grants (assistant_id TEXT NOT NULL, server TEXT NOT NULL, tool TEXT NOT NULL, "
+        "granted_at TEXT NOT NULL, PRIMARY KEY (assistant_id, server, tool))",
+    ),
 )
 
 
@@ -135,7 +141,7 @@ class Store:
             )
 
     def delete_assistant(self, assistant_id: str) -> None:
-        """The assistant and every conversation with it, in one transaction."""
+        """The assistant, every conversation with it and every tool it was allowed, in one transaction."""
 
         with self._lock, self._transaction():
             self._connection.execute(
@@ -143,7 +149,41 @@ class Store:
                 (assistant_id,),
             )
             self._connection.execute("DELETE FROM conversations WHERE assistant_id = ?", (assistant_id,))
+            self._connection.execute("DELETE FROM grants WHERE assistant_id = ?", (assistant_id,))
             self._connection.execute("DELETE FROM assistants WHERE id = ?", (assistant_id,))
+
+    # -- grants ----------------------------------------------------------------
+
+    def grant(self, assistant_id: str, server: str, tool: str) -> None:
+        """Let the assistant run this tool without asking, until the grant is revoked."""
+
+        with self._lock:
+            self._connection.execute(
+                "INSERT INTO grants (assistant_id, server, tool, granted_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT (assistant_id, server, tool) DO NOTHING",
+                (assistant_id, server, tool, _now()),
+            )
+
+    def revoke(self, assistant_id: str, server: str, tool: str) -> bool:
+        """Ask again before the tool runs. Whether there was a grant to revoke."""
+
+        with self._lock:
+            cursor = self._connection.execute(
+                "DELETE FROM grants WHERE assistant_id = ? AND server = ? AND tool = ?", (assistant_id, server, tool)
+            )
+        return cursor.rowcount > 0
+
+    def grants(self, assistant_id: str | None = None) -> list[dict[str, str]]:
+        """Every grant, or one assistant's, oldest first."""
+
+        query = "SELECT assistant_id, server, tool, granted_at FROM grants"
+        parameters: tuple[str, ...] = ()
+        if assistant_id is not None:
+            query += " WHERE assistant_id = ?"
+            parameters = (assistant_id,)
+        with self._lock:
+            rows = self._connection.execute(query + " ORDER BY granted_at, server, tool", parameters).fetchall()
+        return [{"assistant_id": row[0], "server": row[1], "tool": row[2], "granted_at": row[3]} for row in rows]
 
     # -- conversations ---------------------------------------------------------
 

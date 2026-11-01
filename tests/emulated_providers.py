@@ -11,7 +11,11 @@ did not offer), with a 400.
 The scripted model here answers as an assistant with skills should: a request naming a
 skill's subject gets a ``load_skill`` call for that skill, then an answer that quotes
 the first line of what the call returned, so a test can tell which skill's body reached
-the model. Every request is kept in ``REQUESTS``.
+the model. Offered the mailbox's tools (``tests/tool_servers/mailbox.py``), a request to
+reply searches the threads, then drafts the reply, then answers by quoting what the
+draft tool returned, so a test can tell whether a "no" reached the model; asked to do it
+"at once", it makes both calls in one reply, as models do. Every request is kept in
+``REQUESTS``.
 
 This proves the plumbing, never how well a model chooses a skill. The live run against
 the real providers is the owner's step before S6 merges (S1's ruling, guard 1).
@@ -61,7 +65,7 @@ class Call:
 @dataclass
 class Turn:
     text: str = ""
-    call: Call | None = None
+    calls: list[Call] = field(default_factory=list)
 
 
 @dataclass
@@ -72,6 +76,16 @@ class Conversation:
     user: list[str] = field(default_factory=list)
     results: list[tuple[str, str]] = field(default_factory=list)  # (tool name, result as text)
     tools: list[str] = field(default_factory=list)
+    #: The results since the person's latest message: what this turn has done so far.
+    turn_results: list[tuple[str, str]] = field(default_factory=list)
+
+    def said(self, text: str) -> None:
+        self.user.append(text)
+        self.turn_results = []
+
+    def got(self, tool: str, result: str) -> None:
+        self.results.append((tool, result))
+        self.turn_results.append((tool, result))
 
 
 _ids = itertools.count(1)
@@ -81,22 +95,48 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}_{next(_ids):04d}"
 
 
+#: The reply the scripted model drafts with the mailbox's write tool.
+DRAFT_BODY = "Sorry about the seam. We will refund order 5531 today."
+
+
+def _mailbox_turn(conversation: Conversation, asked: str) -> Turn:
+    done = dict(conversation.turn_results)
+    search = Call(_new_id("call"), "search_threads", {"query": "refund"})
+    draft = Call(_new_id("call"), "create_draft", {"thread_id": "t-1042", "body": DRAFT_BODY})
+    if "create_draft" in done:
+        return Turn(f"The draft tool said: {done['create_draft']}")
+    if "at once" in asked and "search_threads" not in done:
+        return Turn("", [search, draft])
+    if "search_threads" not in done:
+        return Turn("", [search])
+    return Turn("", [draft])
+
+
 def next_turn(conversation: Conversation) -> Turn:
-    """The scripted model: load the skill the latest message asks for, then answer from it."""
+    """The scripted model: a reply through the mailbox's tools, or a skill loaded and answered from."""
     asked = conversation.user[-1].lower() if conversation.user else ""
     wanted = next((skill for word, skill in SKILL_WORDS if word in asked), None)
     turn: Turn
-    if wanted is not None and "load_skill" in conversation.tools:
+    if "reply" in asked and {"search_threads", "create_draft"} <= set(conversation.tools):
+        turn = _mailbox_turn(conversation, asked)
+    elif "environment" in asked and "visible_environment" in conversation.tools:
+        done = dict(conversation.turn_results)
+        if "visible_environment" in done:
+            turn = Turn(f"The tool server sees: {done['visible_environment']}")
+        else:
+            turn = Turn("", [Call(_new_id("call"), "visible_environment", {})])
+    elif wanted is not None and "load_skill" in conversation.tools:
         loaded = [result for name, result in conversation.results if name == "load_skill"]
         if not loaded:
-            turn = Turn("", Call(_new_id("call"), "load_skill", {"name": wanted}))
+            turn = Turn("", [Call(_new_id("call"), "load_skill", {"name": wanted})])
         else:
             first_line = loaded[-1].strip().splitlines()[0] if loaded[-1].strip() else ""
             turn = Turn(f"Following the {wanted} skill. It begins: {first_line}")
     else:
         turn = Turn(GREETING)
-    if turn.call and turn.call.name not in conversation.tools:
-        raise Violation(f"the model was not offered {turn.call.name!r}; offered: {conversation.tools}")
+    for call in turn.calls:
+        if call.name not in conversation.tools:
+            raise Violation(f"the model was not offered {call.name!r}; offered: {conversation.tools}")
     return turn
 
 
@@ -119,7 +159,7 @@ def _text_of(content: Any) -> str:
 
 def _usage(body: dict[str, Any], turn: Turn) -> tuple[int, int]:
     return len(json.dumps(body)) // 4, max(
-        1, (len(turn.text) + len(json.dumps(turn.call.arguments if turn.call else {}))) // 4
+        1, (len(turn.text) + sum(len(json.dumps(call.arguments)) for call in turn.calls)) // 4
     )
 
 
@@ -148,9 +188,9 @@ def anthropic_conversation(body: dict[str, Any]) -> Conversation:
                     raise Violation(
                         f"tool_result for a tool_use that is not in the previous message: {block['tool_use_id']}"
                     )
-                conversation.results.append((pending.pop(block["tool_use_id"]), _text_of(block.get("content"))))
+                conversation.got(pending.pop(block["tool_use_id"]), _text_of(block.get("content")))
             elif block["type"] == "text":
-                conversation.user.append(block["text"])
+                conversation.said(block["text"])
         if pending:
             raise Violation(f"tool_use ids without a tool_result immediately after: {sorted(pending)}")
     return conversation
@@ -184,14 +224,15 @@ async def anthropic_stream(body: dict[str, Any], turn: Turn) -> AsyncIterator[by
             yield event("content_block_delta", {"type": "content_block_delta", "index": index, "delta": delta})
         yield event("content_block_stop", {"type": "content_block_stop", "index": index})
         index += 1
-    if turn.call:
-        block = {"type": "tool_use", "id": turn.call.id, "name": turn.call.name, "input": {}}
+    for call in turn.calls:
+        block = {"type": "tool_use", "id": call.id, "name": call.name, "input": {}}
         yield event("content_block_start", {"type": "content_block_start", "index": index, "content_block": block})
-        for piece in _pieces(json.dumps(turn.call.arguments), 16):
+        for piece in _pieces(json.dumps(call.arguments), 16):
             delta = {"type": "input_json_delta", "partial_json": piece}
             yield event("content_block_delta", {"type": "content_block_delta", "index": index, "delta": delta})
         yield event("content_block_stop", {"type": "content_block_stop", "index": index})
-    stop = "tool_use" if turn.call else "end_turn"
+        index += 1
+    stop = "tool_use" if turn.calls else "end_turn"
     yield event(
         "message_delta",
         {
@@ -208,15 +249,15 @@ def anthropic_message(body: dict[str, Any], turn: Turn) -> dict[str, Any]:
     content: list[dict[str, Any]] = []
     if turn.text:
         content.append({"type": "text", "text": turn.text})
-    if turn.call:
-        content.append({"type": "tool_use", "id": turn.call.id, "name": turn.call.name, "input": turn.call.arguments})
+    for call in turn.calls:
+        content.append({"type": "tool_use", "id": call.id, "name": call.name, "input": call.arguments})
     return {
         "id": _new_id("msg"),
         "type": "message",
         "role": "assistant",
         "model": body["model"],
         "content": content,
-        "stop_reason": "tool_use" if turn.call else "end_turn",
+        "stop_reason": "tool_use" if turn.calls else "end_turn",
         "stop_sequence": None,
         "usage": {"input_tokens": tokens_in, "output_tokens": tokens_out},
     }
@@ -241,12 +282,12 @@ def responses_conversation(body: dict[str, Any]) -> Conversation:
         elif kind == "function_call_output":
             if item["call_id"] not in pending:
                 raise Violation(f"function_call_output for a call that was never made: {item['call_id']}")
-            conversation.results.append((pending.pop(item["call_id"]), _text_of(item.get("output"))))
+            conversation.got(pending.pop(item["call_id"]), _text_of(item.get("output")))
         elif kind == "message":
             if pending:
                 raise Violation(f"No tool output found for function call {sorted(pending)}")
             if item.get("role") == "user":
-                conversation.user.append(_text_of(item.get("content")))
+                conversation.said(_text_of(item.get("content")))
             elif item.get("role") in ("system", "developer"):
                 conversation.system += _text_of(item.get("content"))
     if pending:
@@ -261,15 +302,15 @@ def _responses_output(turn: Turn) -> list[dict[str, Any]]:
         output.append(
             {"id": _new_id("msg"), "type": "message", "status": "completed", "role": "assistant", "content": [part]}
         )
-    if turn.call:
+    for call in turn.calls:
         output.append(
             {
                 "id": _new_id("fc"),
                 "type": "function_call",
                 "status": "completed",
-                "call_id": turn.call.id,
-                "name": turn.call.name,
-                "arguments": json.dumps(turn.call.arguments),
+                "call_id": call.id,
+                "name": call.name,
+                "arguments": json.dumps(call.arguments),
             }
         )
     return output
@@ -362,7 +403,7 @@ def chat_conversation(body: dict[str, Any]) -> Conversation:
         if message["role"] == "tool":
             if message["tool_call_id"] not in pending:
                 raise Violation(f"a tool message for a call that was never made: {message['tool_call_id']}")
-            conversation.results.append((pending.pop(message["tool_call_id"]), _text_of(message.get("content"))))
+            conversation.got(pending.pop(message["tool_call_id"]), _text_of(message.get("content")))
             continue
         if pending:
             raise Violation(f"tool_call_ids without a tool message: {sorted(pending)}")
@@ -370,7 +411,7 @@ def chat_conversation(body: dict[str, Any]) -> Conversation:
             for call in message.get("tool_calls") or []:
                 pending[call["id"]] = call["function"]["name"]
         elif message["role"] == "user":
-            conversation.user.append(_text_of(message.get("content")))
+            conversation.said(_text_of(message.get("content")))
         elif message["role"] in ("system", "developer"):
             conversation.system += _text_of(message.get("content"))
     if pending:
@@ -395,17 +436,17 @@ async def chat_stream(body: dict[str, Any], turn: Turn) -> AsyncIterator[bytes]:
     for piece in _pieces(turn.text):
         await asyncio.sleep(CHUNK_DELAY)
         yield chunk({"content": piece})
-    if turn.call:
+    for position, call in enumerate(turn.calls):
         start = {
-            "index": 0,
-            "id": turn.call.id,
+            "index": position,
+            "id": call.id,
             "type": "function",
-            "function": {"name": turn.call.name, "arguments": ""},
+            "function": {"name": call.name, "arguments": ""},
         }
         yield chunk({"tool_calls": [start]})
-        for piece in _pieces(json.dumps(turn.call.arguments), 16):
-            yield chunk({"tool_calls": [{"index": 0, "function": {"arguments": piece}}]})
-    yield chunk({}, "tool_calls" if turn.call else "stop")
+        for piece in _pieces(json.dumps(call.arguments), 16):
+            yield chunk({"tool_calls": [{"index": position, "function": {"arguments": piece}}]})
+    yield chunk({}, "tool_calls" if turn.calls else "stop")
     if (body.get("stream_options") or {}).get("include_usage"):
         tokens_in, tokens_out = _usage(body, turn)
         usage = {"prompt_tokens": tokens_in, "completion_tokens": tokens_out, "total_tokens": tokens_in + tokens_out}
@@ -422,15 +463,21 @@ async def chat_stream(body: dict[str, Any], turn: Turn) -> AsyncIterator[bytes]:
 def chat_completion(body: dict[str, Any], turn: Turn) -> dict[str, Any]:
     tokens_in, tokens_out = _usage(body, turn)
     message: dict[str, Any] = {"role": "assistant", "content": turn.text or None}
-    if turn.call:
-        function = {"name": turn.call.name, "arguments": json.dumps(turn.call.arguments)}
-        message["tool_calls"] = [{"id": turn.call.id, "type": "function", "function": function}]
+    if turn.calls:
+        message["tool_calls"] = [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {"name": call.name, "arguments": json.dumps(call.arguments)},
+            }
+            for call in turn.calls
+        ]
     return {
         "id": _new_id("chatcmpl"),
         "object": "chat.completion",
         "created": int(time.time()),
         "model": body["model"],
-        "choices": [{"index": 0, "message": message, "finish_reason": "tool_calls" if turn.call else "stop"}],
+        "choices": [{"index": 0, "message": message, "finish_reason": "tool_calls" if turn.calls else "stop"}],
         "usage": {"prompt_tokens": tokens_in, "completion_tokens": tokens_out, "total_tokens": tokens_in + tokens_out},
     }
 
@@ -443,6 +490,10 @@ def chat_completion(body: dict[str, Any], turn: Turn) -> dict[str, Any]:
 #: The key the emulator refuses, as a real service refuses a revoked one.
 BAD_KEY = "sk-revoked-key"
 
+#: A tool after whose result the next request is refused, as a provider that fails mid-run
+#: would; empty for none. A test sets it to see what a run that failed after a tool keeps.
+FAIL_AFTER = ""
+
 
 async def _answer(request: Request, protocol: str) -> Response:
     body = await request.json()
@@ -453,11 +504,15 @@ async def _answer(request: Request, protocol: str) -> Response:
         return JSONResponse({"type": "error", "error": error}, status_code=401)
     try:
         if protocol == "anthropic":
-            turn = next_turn(anthropic_conversation(body))
+            conversation = anthropic_conversation(body)
         elif protocol == "responses":
-            turn = next_turn(responses_conversation(body))
+            conversation = responses_conversation(body)
         else:
-            turn = next_turn(chat_conversation(body))
+            conversation = chat_conversation(body)
+        if FAIL_AFTER and any(name == FAIL_AFTER for name, _ in conversation.turn_results):
+            error = {"type": "invalid_request_error", "message": f"emulated failure after {FAIL_AFTER}"}
+            return JSONResponse({"type": "error", "error": error}, status_code=400)
+        turn = next_turn(conversation)
     except Violation as refused:
         REQUESTS[-1]["refused"] = str(refused)
         return JSONResponse({"error": {"type": "invalid_request_error", "message": str(refused)}}, status_code=400)
