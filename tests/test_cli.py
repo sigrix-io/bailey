@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -27,11 +30,38 @@ def test_the_version_is_the_one_being_published(capsys: pytest.CaptureFixture[st
     assert capsys.readouterr().out.strip() == f"bailey {published}"
 
 
-def test_a_command_is_required(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exited:
-        cli.main([])
-    assert exited.value.code == 2
-    assert "doctor" in capsys.readouterr().err
+def test_with_no_command_it_starts_the_app(monkeypatch: pytest.MonkeyPatch) -> None:
+    started: list[dict[str, object]] = []
+
+    def serve(**options: object) -> int:
+        started.append(options)
+        return 0
+
+    monkeypatch.setattr("bailey.server.serve", serve)
+    assert cli.main([]) == 0
+    assert cli.main(["--port", "8123", "--no-browser"]) == 0
+    assert started == [{"port": 0, "open_browser": True}, {"port": 8123, "open_browser": False}]
+
+
+def test_the_doctor_and_the_version_load_none_of_the_server() -> None:
+    """The app's dependencies load only when the app starts, so a broken one cannot stop the doctor."""
+
+    probe = (
+        "import sys, contextlib, io\n"
+        "from bailey import cli\n"
+        "with contextlib.redirect_stdout(io.StringIO()):\n"
+        "    cli.main(['doctor', '--json'])\n"
+        "print(sorted(name for name in ('bailey.server', 'starlette', 'uvicorn') if name in sys.modules))\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", probe],
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1"},
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert completed.stdout.strip() == "[]", completed.stderr
 
 
 def _checks(*, required_ok: bool) -> list[Check]:

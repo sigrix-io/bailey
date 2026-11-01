@@ -8,6 +8,35 @@ described in `VERSIONING.md`.
 
 ### Added
 
+- The app's frame (story S5 of 0.1). `bailey` with no command starts a server on 127.0.0.1
+  and opens the browser on an address that carries a token for this session; `--port`
+  picks the port and `--no-browser` prints the address instead. Everything but the page
+  and its three static files needs that token, so a request from another web page, or one
+  from an earlier session, is refused, and a Host that is not a loopback name is refused
+  everywhere. The page is plain JavaScript with no build step and loads nothing from
+  another origin, under a CSP that allows nothing inline; it writes what it is given as
+  text, never as markup, and a test sweeps its scripts for every way markup gets in.
+  Ctrl+C and a terminate signal both stop it cleanly.
+- Settings: the AI provider (Anthropic, OpenAI, or an OpenAI-compatible server and its
+  address) and its key. A key goes to the system keychain (macOS Keychain, Windows
+  Credential Manager, or the Secret Service on Linux), and where there is none, to
+  `keys.enc`, a file encrypted under a passphrase the user chooses: scrypt makes the key
+  and AES-256-GCM encrypts under it, so the file cannot be read or changed unnoticed
+  without the passphrase. Bailey asks for it each time it starts, or reads
+  `BAILEY_PASSPHRASE`; `BAILEY_KEYS=file` uses the file even beside a keychain, and a
+  forgotten passphrase means starting over. A key is never written to the local store,
+  a log or a response; the page sees whether one is saved and its last four characters.
+- The local store: `bailey.db`, SQLite in the platform's folder for application data
+  (`BAILEY_HOME` moves it), with a schema that only moves forward. A store written by a
+  newer Bailey is refused rather than read.
+- `bailey doctor` checks the data folder (required, and asked about without creating it)
+  and the keychain (optional: without one, keys go to the encrypted file).
+- A test runs the app under Python's audit hooks and fails on any connection it makes to
+  anything but this computer, with a canary that proves the hooks see one.
+- The package now installs its dependencies: Starlette and uvicorn for the server,
+  keyring for the keychain, and cryptography for the key file. `bailey doctor` and
+  `bailey --version` load none of the server.
+
 - `docs/spikes/0001-agent-core-and-local-index.md`: the measurements behind the agent core
   and the knowledge index planned for 0.1, what they recommend, and the owner's ruling on
   both (2026-10-16). Nothing in the package changes.
