@@ -37,7 +37,9 @@ classifiers = [
 #
 # Knowledge is S1's stack, pinned at the versions it measured: MarkItDown converts
 # documents, fastembed embeds them on this computer through onnxruntime, and numpy
-# searches the vectors. Each loads only when a document needs it.
+# searches the vectors. Each loads only when a document needs it. numpy 2.5 needs
+# Python 3.12, so Python 3.11 takes 2.4.6, the last numpy that installs there; what
+# the search uses of numpy is the same in both, and CI runs the suite on each.
 dependencies = [
     "starlette>=1.10,<2",
     "uvicorn>=0.54",
@@ -51,7 +53,8 @@ dependencies = [
     "markitdown[pdf,docx]==0.1.8",
     "fastembed==0.9.0",
     "onnxruntime==1.31.0",
-    "numpy==2.5.4",
+    "numpy==2.5.4; python_version >= '3.12'",
+    "numpy==2.4.6; python_version < '3.12'",
 ]
 
 [project.optional-dependencies]

@@ -59,7 +59,8 @@ described in `VERSIONING.md`.
   runs the real model, which CI downloads on one job. The no-telemetry test now runs a
   chat over documents.
 - `markitdown[pdf,docx]` 0.1.8, `fastembed` 0.9.0, `onnxruntime` 1.31.0 and `numpy` 2.5.4,
-  pinned exactly. They load when a document is added or searched, not when the app starts.
+  pinned exactly. numpy 2.5 needs Python 3.12, so Python 3.11 takes numpy 2.4.6. They load
+  when a document is added or searched, not when the app starts.
 
 - Tools (story S7 of 0.1). Each MCP server a solution's `mcp.json` names starts as its own
   process over stdio, built on FastMCP's base `StdioTransport` rather than its `uvx` and
