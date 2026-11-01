@@ -9,6 +9,7 @@ canary, since a sweep that finds nothing and a file with nothing to find read al
 
 from __future__ import annotations
 
+import json
 import re
 from html.parser import HTMLParser
 from pathlib import Path
@@ -140,4 +141,8 @@ def test_no_sheet_loads_anything(sheet: Path) -> None:
 
 def test_every_file_served_exists_and_every_file_there_is_served() -> None:
     present = {path.name for path in WEB.iterdir() if path.is_file()} - {"index.html"}
-    assert present == set(STATIC_FILES)
+    # Gatehouse's scripts and stylesheet; its licence, notice and record sit beside them unserved.
+    release = json.loads((WEB / "gatehouse" / "RELEASE.json").read_text(encoding="utf-8"))
+    vendored = {f"gatehouse/{name}" for name in release["files"] if name.endswith((".js", ".css"))}
+    assert present | vendored == set(STATIC_FILES)
+    assert all((WEB / name).is_file() for name in STATIC_FILES)

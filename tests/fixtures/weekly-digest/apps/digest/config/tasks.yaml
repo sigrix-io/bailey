@@ -1,0 +1,21 @@
+_process: sequential
+
+pick_highlights:
+  description: |
+    Pick this week's three highlights from the notes.
+
+    The week's notes: {prompt}
+
+    {configuration}
+  expected_output: |
+    Three highlights, one line each: what it is and why a regular would care.
+  agent: highlights_picker
+
+write_newsletter:
+  description: |
+    Write this week's newsletter from the highlights, under 200 words.
+  expected_output: |
+    A newsletter with a greeting, the three highlights and a sign-off.
+  agent: newsletter_writer
+  context:
+    - pick_highlights

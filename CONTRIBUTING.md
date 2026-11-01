@@ -43,6 +43,14 @@ tools and their documents) is on `main`.
 - A document, or anything about one, leaving the computer other than the
   passages a request carries to the AI provider. Conversion, splitting,
   indexing and search all run locally (`src/bailey/knowledge.py`).
+- An app's runner started any way but `bailey.apps`, or handed `SIGRIX_TOKEN` or
+  `POSTERN_AGENT_ID`. With neither, the runner checks no licence and looks for no
+  update, and the no-telemetry test records the runner and its crew to hold it so.
+- CrewAI, or anything an app needs, installed with Bailey. An app runs in an
+  environment of its own, built from its own requirements once the person says yes.
+- An edit to `src/bailey/web/gatehouse/`. It is a release of
+  `@sigrix-io/gatehouse`; change Gatehouse upstream and run
+  `python scripts/vendor_gatehouse.py <version>`.
 - A download nobody asked for. The search model is fetched only from
   `POST /api/knowledge/model`, which the page calls after it has named the model,
   its size and where it comes from; everywhere else it loads with nothing
@@ -73,6 +81,11 @@ One test runs the real model: set `BAILEY_SEARCH_MODEL` to a folder holding it,
 or `BAILEY_TEST_REAL_EMBEDDINGS=1` to let the test fetch it; CI does the second
 on one job. A MarkItDown, fastembed or onnxruntime bump lands only once
 `tests/test_knowledge_contract.py` and that test pass on it.
+
+Apps are tested on the fixture solution `tests/fixtures/weekly-digest` with the
+real runner, `sigrix-runtime`, and `tests/stand_ins/crewai` in place of CrewAI.
+`tests/app_environments.py` makes an app's environment ready without a download,
+for the tests and for trying an app by hand.
 
 Each doctor check takes what it probes as an argument, so a test can hand it a
 machine that lacks something. A new check comes with a test on both sides.

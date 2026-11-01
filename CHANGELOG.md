@@ -8,6 +8,55 @@ described in `VERSIONING.md`.
 
 ### Added
 
+- Apps (story S9 of 0.1). A solution's app is a crew in `apps/<name>/`, a Postern bundle:
+  `postern.json`, `ui.json` when the seller composed one, `config/agents.yaml` and
+  `config/tasks.yaml`, and `requirements.txt`. Format 0.1 has no member for apps and
+  refuses one it does not know, so Bailey finds an app by its folder, as it finds a
+  sample. An import keeps each app's files in the data folder, never a `.env` (which
+  would carry a seller's keys or a listing's id) or what a runner wrote, and says that
+  an app is its seller's program running on this computer. An export writes the apps
+  back, and deleting the assistant removes them.
+- CrewAI is installed per app, never with Bailey. `sigrix-runtime[crewai]` resolves to
+  148 packages and pins `openai` 2.x and `mcp` 1.x against Bailey's own 3.31.0 and 2.3.0.
+  Each app runs in a virtual environment of its own in the data folder, built from its
+  `requirements.txt` and `sigrix-runtime==0.1.0`, with `uv` when Bailey finds it and with
+  venv and pip otherwise. Apps with the same requirements share one. Building it
+  downloads about 250 MB from PyPI and takes about 900 MB on disk, which the Apps panel
+  says, and runs only when the person presses the button.
+- The app host starts an app's runner when its page opens:
+  `python -m sigrix_runtime.postern --bundle <folder> --host 127.0.0.1 --port 0 --no-pull`,
+  with `PYTHONSAFEPATH` so the pinned runtime serves rather than the copy a Sigrix bundle
+  carries, and the port read from the runner's `POSTERN_PORT=` line. The runner stops
+  with its app's assistant and with Bailey. Its environment is built as the tool host
+  builds a server's: the system's few defaults, the proxy and certificate settings, the
+  person's provider key and model, CrewAI's telemetry switched off, and a token of
+  Bailey's that it demands of every request. It never receives `SIGRIX_TOKEN` or
+  `POSTERN_AGENT_ID`, so it checks no licence and looks for no update.
+- Gatehouse draws an app: `@sigrix-io/gatehouse` 0.4.0, vendored from npm by
+  `scripts/vendor_gatehouse.py` as the Sigrix platform vendors it. The script takes an
+  exact version, checks the registry's sha512, and writes each file's sha256 into
+  `RELEASE.json`, which a test holds every vendored file to. The page's `PosternClient`
+  points at Bailey, which forwards the four verbs to the runner, streams `stream`
+  through, and cancels the run when the page closes, so the page's CSP stays
+  `connect-src 'self'`. The form comes from the app's `describe`, laid out by its
+  `ui.json`, and each step shows as it finishes. Gatehouse reads Bailey's colours, in
+  both themes.
+- An app whose `describe` declares a text input keyed `passages` receives the passages
+  the assistant's documents hold for its run's `prompt`, sent whole or searched as chat
+  decides and numbered as in chat (design §3.7, until runners can call tools). The form
+  never shows that input. An app that runs on another provider's key than the person's
+  says so in the Apps panel, and its runner refuses the run with `missing_credential`.
+- The contract tests for apps run the real runner, `sigrix-runtime` 0.1.0, with a
+  stand-in for CrewAI (`tests/stand_ins/crewai`) that sends each task to the provider
+  emulator with the key in its environment. The fixture solution
+  `tests/fixtures/weekly-digest` carries one crew app. The no-telemetry test now runs an
+  app, and records the runner and its crew as well as Bailey. One test builds an app's
+  environment from PyPI and runs the real CrewAI (`BAILEY_TEST_REAL_CREWAI=1`), which CI
+  does on one job; its first run here found that `uv` makes a venv only in a folder that
+  does not exist yet.
+- `httpx` is named as a dependency, for the proxy (the provider SDKs already bring it).
+  The tests add `sigrix-runtime`, PyYAML and python-dotenv, never Bailey itself.
+
 - Knowledge (story S8 of 0.1). Each assistant keeps a collection of documents on this
   computer. Markdown, text, CSV and JSON go in as they are; PDF, Word and HTML are
   converted by MarkItDown's converter for that kind, called directly rather than through

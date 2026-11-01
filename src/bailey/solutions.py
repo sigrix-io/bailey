@@ -10,6 +10,12 @@ A solution is a folder, or a zip of one::
     persona.md                       the voice, when the writer keeps it apart from the instructions
     mcp.json                         its MCP servers: how each starts, and the names of its variables
     samples/<slot>.<ext>             a made-up example of each document the solution asks for
+    apps/<name>/                     an app: a Postern bundle (a crew), run by its own runner
+
+An app is found by its folder, as a sample is: format 0.1 has no member for apps, and
+refuses one it does not know. Its files stay out of Bailey's record of the assistant (a
+crew carries its runner's code); the app host keeps them in the data folder, where the
+runner runs (:mod:`bailey.apps`).
 
 ``assistant.json``'s ``knowledge`` names the documents the solution asks the person for,
 its knowledge slots, which they give on their own machine; a slot's sample stands in
@@ -70,6 +76,16 @@ VARIABLE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 #: A knowledge slot's name, and an extension it accepts (schemas/0.1, knowledge_slot).
 SLOT_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 EXTENSION = re.compile(r"^[a-z0-9]{1,16}$")
+
+#: An app's folder name, and how many a solution may carry.
+APP_NAME = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
+APPS_FOLDER = "apps"
+MAX_APPS = 10
+#: The seller's ``ui.json``, which Gatehouse lays an app's page out from.
+MAX_UI_BYTES = 64 * 1024
+#: What an app's folder holds that a package never brings in: a ``.env``, which holds a
+#: seller's keys or a listing's id, and what a runner writes as it runs.
+_LEFT_OUT = re.compile(r"^(?:\.env|\.last_error|\.postern[^/]*|workspace/.*|(?:.*/)?__pycache__/.*|.*\.pyc)$")
 
 #: The fixed time written into every zip entry, so one assistant always exports to the same bytes.
 _ZIP_TIME = (2026, 1, 1, 0, 0, 0)
@@ -216,6 +232,35 @@ class Sample:
 
 
 @dataclass(frozen=True)
+class App:
+    """One of a solution's apps: a crew in ``apps/<name>/``, a Postern bundle its runner serves.
+
+    ``files`` are the bundle's, by path inside its folder. They travel with an import and
+    an export and are kept in the data folder in between, never in the assistant's record.
+    """
+
+    name: str
+    title: str
+    summary: str = ""
+    #: The seller's ``ui.json``: how Gatehouse lays out the app's form and result.
+    ui: Mapping[str, Any] | None = field(default=None, compare=False, hash=False)
+    files: Mapping[str, bytes] = field(default_factory=dict, compare=False, hash=False, repr=False)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"name": self.name, "title": self.title, "summary": self.summary, "ui": self.ui}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> App:
+        ui = data.get("ui")
+        return cls(
+            name=str(data["name"]),
+            title=str(data.get("title") or data["name"]),
+            summary=str(data.get("summary") or ""),
+            ui=ui if isinstance(ui, dict) else None,
+        )
+
+
+@dataclass(frozen=True)
 class Assistant:
     name: str
     title: str
@@ -228,6 +273,7 @@ class Assistant:
     servers: tuple[Server, ...] = field(default_factory=tuple)
     knowledge: tuple[KnowledgeSlot, ...] = field(default_factory=tuple)
     samples: tuple[Sample, ...] = field(default_factory=tuple)
+    apps: tuple[App, ...] = field(default_factory=tuple)
     #: Bailey's own setting, not the solution's: answer only from the documents, and say
     #: so rather than answer from what the model knows when they do not cover a question.
     grounded_only: bool = False
@@ -244,6 +290,9 @@ class Assistant:
     def sample(self, slot: str) -> Sample | None:
         return next((sample for sample in self.samples if sample.slot == slot), None)
 
+    def app(self, name: str) -> App | None:
+        return next((app for app in self.apps if app.name == name), None)
+
     def as_dict(self) -> dict[str, Any]:
         """Bailey's own record of an assistant, as the local store keeps it."""
 
@@ -259,6 +308,7 @@ class Assistant:
             "servers": [server.as_dict() for server in self.servers],
             "knowledge": [slot.as_dict() for slot in self.knowledge],
             "samples": [sample.as_dict() for sample in self.samples],
+            "apps": [app.as_dict() for app in self.apps],
             "grounded_only": self.grounded_only,
         }
 
@@ -277,6 +327,7 @@ class Assistant:
             servers=tuple(Server.from_dict(server) for server in data.get("servers") or ()),
             knowledge=tuple(KnowledgeSlot.from_dict(slot) for slot in data.get("knowledge") or ()),
             samples=tuple(Sample.from_dict(sample) for sample in data.get("samples") or ()),
+            apps=tuple(App.from_dict(app) for app in data.get("apps") or ()),
             grounded_only=bool(data.get("grounded_only")),
         )
 
@@ -593,6 +644,61 @@ def _read_sample(files: Mapping[str, bytes], slot: KnowledgeSlot) -> Sample | No
     return None
 
 
+def _read_app(name: str, files: Mapping[str, bytes]) -> App:
+    """One app's folder, its paths relative to it."""
+
+    where = f"{APPS_FOLDER}/{name}"
+    if "config/agents.yaml" not in files or "config/tasks.yaml" not in files:
+        raise SolutionRefused(f"{where} holds no crew: an app needs config/agents.yaml and config/tasks.yaml.")
+    title, summary = name, ""
+    if "postern.json" in files:
+        try:
+            describe = json.loads(files["postern.json"].decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise SolutionRefused(f"{where}/postern.json is not JSON.") from error
+        agent = describe.get("agent") if isinstance(describe, dict) else None
+        if not isinstance(agent, dict):
+            raise SolutionRefused(f"{where}/postern.json has no agent, which a describe document names.")
+        if isinstance(agent.get("name"), str) and agent["name"].strip():
+            title = agent["name"].strip()[:120]
+        found = agent.get("summary") or agent.get("description")
+        if isinstance(found, str):
+            summary = found.strip()[:500]
+    ui = None
+    if "ui.json" in files:
+        if len(files["ui.json"]) > MAX_UI_BYTES:
+            raise SolutionRefused(f"{where}/ui.json is over {MAX_UI_BYTES // 1024} KB.")
+        try:
+            ui = json.loads(files["ui.json"].decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise SolutionRefused(f"{where}/ui.json is not JSON.") from error
+        if not isinstance(ui, dict):
+            raise SolutionRefused(f"{where}/ui.json should hold one JSON object.")
+    return App(name=name, title=title, summary=summary, ui=ui, files=dict(files))
+
+
+def read_apps(files: Mapping[str, bytes]) -> tuple[tuple[App, ...], tuple[str, ...]]:
+    """The solution's apps, and the paths left out of them (a ``.env``, a runner's own files)."""
+
+    grouped: dict[str, dict[str, bytes]] = {}
+    left_out: list[str] = []
+    for path, data in sorted(files.items()):
+        if not path.startswith(f"{APPS_FOLDER}/"):
+            continue
+        name, _, inner = path.removeprefix(f"{APPS_FOLDER}/").partition("/")
+        if not inner:
+            raise SolutionRefused(f"{path} is not inside an app's folder, apps/<name>/.")
+        if not APP_NAME.fullmatch(name):
+            raise SolutionRefused(f"{APPS_FOLDER}/{name} is not an app's name: lowercase letters, digits and hyphens.")
+        if _LEFT_OUT.fullmatch(inner):
+            left_out.append(path)
+            continue
+        grouped.setdefault(name, {})[inner] = data
+    if len(grouped) > MAX_APPS:
+        raise SolutionRefused(f"The solution carries {len(grouped)} apps; Bailey takes {MAX_APPS} at most.")
+    return tuple(_read_app(name, inner) for name, inner in grouped.items()), tuple(left_out)
+
+
 def read_solution(files: Mapping[str, bytes]) -> Assistant:
     """The assistant a solution's files describe, or :class:`SolutionRefused` saying why not."""
 
@@ -652,6 +758,7 @@ def read_solution(files: Mapping[str, bytes]) -> Assistant:
             raise SolutionRefused(f"{where}: {skill.name} is listed twice.")
         skills.append(skill)
     knowledge, samples = _read_knowledge(files, document, document_path)
+    apps, _ = read_apps(files)
     return Assistant(
         name=name,
         title=title.strip(),
@@ -663,6 +770,7 @@ def read_solution(files: Mapping[str, bytes]) -> Assistant:
         servers=_read_servers(files, document, document_path),
         knowledge=knowledge,
         samples=samples,
+        apps=apps,
     )
 
 
@@ -805,6 +913,7 @@ def assistant_from_form(form: Mapping[str, Any], previous: Assistant) -> Assista
         servers=previous.servers,
         knowledge=previous.knowledge,
         samples=previous.samples,
+        apps=previous.apps,
         grounded_only=_flag(form, "grounded_only", previous.grounded_only),
     )
 
@@ -885,6 +994,10 @@ def solution_files(assistant: Assistant) -> dict[str, bytes]:
         ]
         for sample in assistant.samples:
             files[sample.path] = sample.text.encode("utf-8")
+    # An app is written as its folder, from the files the caller loaded into it.
+    for app in assistant.apps:
+        for path, data in sorted(app.files.items()):
+            files[f"{APPS_FOLDER}/{app.name}/{path}"] = data
     if assistant.servers:
         entries: dict[str, Any] = {}
         declarations: dict[str, Any] = {}
