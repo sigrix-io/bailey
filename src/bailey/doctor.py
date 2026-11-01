@@ -6,19 +6,23 @@ others are needed by some solutions only: a tool published as an npm package
 needs Node.js, and nothing else does. So they are reported, and they never
 fail the command.
 
-It reads this machine and nothing else: no network call, no file written, and
-no environment variable printed. Every check takes what it probes as an
-argument, so the tests can hand it a machine that lacks something.
+It reads this machine and nothing else: no network call, no file or folder
+written, and no secret read. Every check takes what it probes as an argument,
+so the tests can hand it a machine that lacks something.
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 import socket
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
+
+from bailey.paths import data_folder, nearest_existing
 
 try:
     import sqlite3
@@ -164,6 +168,59 @@ def check_loopback(socket_factory: Callable[..., socket.socket] = socket.socket)
     )
 
 
+def check_data_folder(folder: Path | None = None, access: Callable[[Path, int], bool] = os.access) -> Check:
+    """Where the settings and the store go. Asks whether it could be written; creates nothing."""
+
+    folder = folder if folder is not None else data_folder()
+    start = nearest_existing(folder)
+    if not start.is_dir():
+        ok, found = False, f"{folder}: {start} is a file, not a folder"
+    elif access(start, os.W_OK | os.X_OK):
+        ok, found = True, str(folder) if folder.exists() else f"{folder} (made when Bailey first starts)"
+    else:
+        ok, found = False, f"{folder}: this user cannot write in {start}"
+    return Check(
+        name="Data folder",
+        ok=ok,
+        found=found,
+        needed_for="your settings and conversations, kept on this computer",
+        required=True,
+        fix="" if ok else "Let this user write there, or point BAILEY_HOME at a folder they can write in.",
+    )
+
+
+def _system_keychain() -> str | None:
+    # Imported when the check runs, so the rest of the doctor needs nothing past the
+    # standard library.
+    from bailey.keys import describe_keychain
+
+    return describe_keychain()
+
+
+def check_keychain(find: Callable[[], str | None] = _system_keychain) -> Check:
+    """Where keys are kept: the system's keychain, or an encrypted file where there is none."""
+
+    try:
+        name: str | None = find()
+        found = name or "none on this machine"
+    except Exception as error:  # a keychain that cannot even be asked is the same as none, said as it happened
+        name, found = None, f"could not be asked ({type(error).__name__}: {error})"
+    ok = name is not None
+    return Check(
+        name="Keychain",
+        ok=ok,
+        found=found,
+        needed_for="keeping your AI keys out of plain files",
+        required=False,
+        fix=""
+        if ok
+        else (
+            "Bailey will keep your keys in an encrypted file instead, and ask for its passphrase each time it "
+            "starts, or read BAILEY_PASSPHRASE."
+        ),
+    )
+
+
 def run_checks() -> list[Check]:
     return [
         check_python(),
@@ -172,6 +229,8 @@ def run_checks() -> list[Check]:
         check_uv(),
         check_node(),
         check_loopback(),
+        check_data_folder(),
+        check_keychain(),
     ]
 
 
@@ -195,9 +254,11 @@ def render(checks: Sequence[Check], *, version: str) -> str:
     else:
         lines.append("This machine has everything Bailey requires.")
         if optional:
+            # Not every optional check is about a solution's tools any more (the keychain is
+            # about where keys go), so each says above what Bailey does without it.
             lines.append(
                 "Optional and missing: "
                 + ", ".join(optional)
-                + ". They matter only to a solution whose tools use them."
+                + ". Bailey works without them; each says above what changes."
             )
     return "\n".join(lines) + "\n"

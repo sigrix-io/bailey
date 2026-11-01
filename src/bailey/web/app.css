@@ -1,0 +1,289 @@
+/* Bailey's page. System fonts only: nothing is loaded from another origin. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #f7f7f4;
+  --surface: #ffffff;
+  --text: #16181d;
+  --text-2: #4a4f5a;
+  --line: #d9dbe0;
+  --brand: #3f4cc4;
+  --brand-ink: #ffffff;
+  --danger: #a3261d;
+  --ok: #1d6b3a;
+  --focus: #3f4cc4;
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111318;
+    --surface: #1a1d24;
+    --text: #eceef2;
+    --text-2: #b4b9c4;
+    --line: #333845;
+    --brand: #8f9aff;
+    --brand-ink: #111318;
+    --danger: #ff9b8f;
+    --ok: #7fdca0;
+    --focus: #8f9aff;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.frame {
+  display: grid;
+  grid-template-columns: 12rem minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.top {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.brand {
+  font-weight: 650;
+  font-size: 1.1rem;
+}
+
+.version {
+  color: var(--text-2);
+  font-size: 0.85rem;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem 0.75rem;
+  border-right: 1px solid var(--line);
+}
+
+.nav[hidden] {
+  display: none;
+}
+
+.nav-item {
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.nav-item:hover {
+  background: var(--line);
+}
+
+.nav-item[aria-current="page"] {
+  background: var(--brand);
+  color: var(--brand-ink);
+}
+
+.main {
+  grid-column: 2;
+  padding: 1.5rem;
+  max-width: 46rem;
+  width: 100%;
+}
+
+/* Without a session there is no navigation, and the page takes the whole width. */
+.frame:has(> .nav[hidden]) .main {
+  grid-column: 1 / -1;
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin: 0 0 1rem;
+}
+
+h2 {
+  font-size: 1.1rem;
+  margin: 0 0 0.5rem;
+}
+
+p {
+  margin: 0 0 0.75rem;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.notice,
+.hint,
+.where {
+  color: var(--text-2);
+}
+
+.hint {
+  font-size: 0.9rem;
+  margin: 0.25rem 0 0;
+}
+
+.actions + .hint,
+form + .hint {
+  margin-top: 0.75rem;
+}
+
+.empty {
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  padding: 2rem 1.5rem;
+  text-align: center;
+}
+
+.empty-title {
+  font-weight: 600;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  margin: 0 0 1rem;
+}
+
+fieldset {
+  border: 0;
+  margin: 0 0 1rem;
+  padding: 0;
+  min-width: 0;
+}
+
+legend {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  padding: 0;
+}
+
+.choices {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0 0 1rem;
+}
+
+.field[hidden] {
+  display: none;
+}
+
+label {
+  font-weight: 600;
+}
+
+.choice {
+  font-weight: 400;
+}
+
+input[type="url"],
+input[type="password"],
+input[type="text"] {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+button {
+  font: inherit;
+  border-radius: 8px;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--brand);
+  background: var(--brand);
+  color: var(--brand-ink);
+  cursor: pointer;
+}
+
+button.quiet {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--line);
+}
+
+button:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+a {
+  color: var(--brand);
+}
+
+.status {
+  min-height: 1.5em;
+  margin: 0.75rem 0 0;
+  color: var(--ok);
+}
+
+.status.error {
+  color: var(--danger);
+}
+
+.status:empty {
+  margin: 0;
+  min-height: 0;
+}
+
+@media (max-width: 40rem) {
+  .frame {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+
+  .nav {
+    flex-direction: row;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding: 0.5rem 0.75rem;
+  }
+
+  .main {
+    grid-column: 1;
+    padding: 1rem;
+  }
+}
