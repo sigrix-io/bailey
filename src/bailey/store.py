@@ -20,6 +20,9 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +34,18 @@ STORE_FILE = "bailey.db"
 MIGRATIONS: tuple[tuple[str, ...], ...] = (
     # 1: settings, one JSON value per name.
     ("CREATE TABLE settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)",),
+    # 2 (S6): assistants, each as Bailey's own record of it (bailey.solutions), and the
+    # conversations with them, each message one record in bailey-message/1
+    # (bailey.conversations), never the agent core's own schema.
+    (
+        "CREATE TABLE assistants (id TEXT PRIMARY KEY, record TEXT NOT NULL, "
+        "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+        "CREATE TABLE conversations (id TEXT PRIMARY KEY, assistant_id TEXT NOT NULL, title TEXT NOT NULL, "
+        "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+        "CREATE INDEX conversations_by_assistant ON conversations (assistant_id, updated_at)",
+        "CREATE TABLE messages (conversation_id TEXT NOT NULL, position INTEGER NOT NULL, record TEXT NOT NULL, "
+        "PRIMARY KEY (conversation_id, position))",
+    ),
 )
 
 
@@ -98,6 +113,108 @@ class Store:
                 (name, encoded),
             )
 
+    # -- assistants ----------------------------------------------------------
+
+    def list_assistants(self) -> list[tuple[str, dict[str, Any]]]:
+        with self._lock:
+            rows = self._connection.execute("SELECT id, record FROM assistants ORDER BY created_at, id").fetchall()
+        return [(row[0], json.loads(row[1])) for row in rows]
+
+    def get_assistant(self, assistant_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._connection.execute("SELECT record FROM assistants WHERE id = ?", (assistant_id,)).fetchone()
+        return None if row is None else json.loads(row[0])
+
+    def put_assistant(self, assistant_id: str, record: dict[str, Any]) -> None:
+        now = _now()
+        with self._lock:
+            self._connection.execute(
+                "INSERT INTO assistants (id, record, created_at, updated_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT (id) DO UPDATE SET record = excluded.record, updated_at = excluded.updated_at",
+                (assistant_id, json.dumps(record, ensure_ascii=False), now, now),
+            )
+
+    def delete_assistant(self, assistant_id: str) -> None:
+        """The assistant and every conversation with it, in one transaction."""
+
+        with self._lock, self._transaction():
+            self._connection.execute(
+                "DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE assistant_id = ?)",
+                (assistant_id,),
+            )
+            self._connection.execute("DELETE FROM conversations WHERE assistant_id = ?", (assistant_id,))
+            self._connection.execute("DELETE FROM assistants WHERE id = ?", (assistant_id,))
+
+    # -- conversations ---------------------------------------------------------
+
+    def create_conversation(self, conversation_id: str, assistant_id: str, title: str) -> None:
+        now = _now()
+        with self._lock:
+            self._connection.execute(
+                "INSERT INTO conversations (id, assistant_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (conversation_id, assistant_id, title, now, now),
+            )
+
+    def get_conversation(self, conversation_id: str) -> dict[str, str] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT id, assistant_id, title, updated_at FROM conversations WHERE id = ?", (conversation_id,)
+            ).fetchone()
+        return None if row is None else {"id": row[0], "assistant_id": row[1], "title": row[2], "updated_at": row[3]}
+
+    def list_conversations(self, assistant_id: str) -> list[dict[str, str]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT id, title, updated_at FROM conversations WHERE assistant_id = ? ORDER BY updated_at DESC, id",
+                (assistant_id,),
+            ).fetchall()
+        return [{"id": row[0], "title": row[1], "updated_at": row[2]} for row in rows]
+
+    def rename_conversation(self, conversation_id: str, title: str) -> None:
+        with self._lock:
+            self._connection.execute("UPDATE conversations SET title = ? WHERE id = ?", (title, conversation_id))
+
+    def delete_conversation(self, conversation_id: str) -> None:
+        with self._lock, self._transaction():
+            self._connection.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
+            self._connection.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
+
+    def append_messages(self, conversation_id: str, records: list[dict[str, Any]]) -> None:
+        """Add records after the conversation's last, and mark it as just used."""
+
+        with self._lock, self._transaction():
+            last = self._connection.execute(
+                "SELECT COALESCE(MAX(position), -1) FROM messages WHERE conversation_id = ?", (conversation_id,)
+            ).fetchone()[0]
+            for offset, record in enumerate(records, start=1):
+                self._connection.execute(
+                    "INSERT INTO messages (conversation_id, position, record) VALUES (?, ?, ?)",
+                    (conversation_id, int(last) + offset, json.dumps(record, ensure_ascii=False)),
+                )
+            self._connection.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (_now(), conversation_id))
+
+    def messages(self, conversation_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT record FROM messages WHERE conversation_id = ? ORDER BY position", (conversation_id,)
+            ).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
+    @contextmanager
+    def _transaction(self) -> Iterator[None]:
+        self._connection.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        self._connection.execute("COMMIT")
+
     def close(self) -> None:
         with self._lock:
             self._connection.close()
+
+
+def _now() -> str:
+    # Microseconds keep two writes in one second in the order they were made.
+    return datetime.now(UTC).isoformat(timespec="microseconds")

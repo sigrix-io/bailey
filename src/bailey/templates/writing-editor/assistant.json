@@ -1,0 +1,15 @@
+{
+  "format_version": "0.1",
+  "name": "writing-editor",
+  "title": "Writing editor",
+  "description": "An editor for your own writing: it proofreads it and makes it shorter, and says what it changed.",
+  "instructions": "skills/writing-editor/SKILL.md",
+  "starters": [
+    "Proofread this: ",
+    "Make this shorter: "
+  ],
+  "skills": [
+    {"name": "proofread", "path": "skills/proofread/SKILL.md"},
+    {"name": "shorten", "path": "skills/shorten/SKILL.md"}
+  ]
+}

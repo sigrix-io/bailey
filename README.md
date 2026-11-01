@@ -76,9 +76,9 @@ pip install -e ".[dev]"
 ruff check . && ruff format --check . && mypy && pytest
 ```
 
-From a checkout, `bailey` starts the app as far as 0.1 has come: the local server, the page, and settings
-with your AI provider's key. Chat arrives with the next part. `CONTRIBUTING.md` says how to keep a
-development setup apart from your own.
+From a checkout, `bailey` starts the app as far as 0.1 has come: chat with an assistant on your AI provider,
+skills loaded when a request needs them, assistants made from templates, edited, exported and imported, and
+settings with your provider's key. `CONTRIBUTING.md` says how to keep a development setup apart from your own.
 
 ## Licence
 

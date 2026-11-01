@@ -24,6 +24,7 @@ style, and the page writes what it is given as text, never as markup.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import secrets
@@ -33,9 +34,10 @@ import sqlite3
 import sys
 import threading
 import time
+import uuid
 import webbrowser
-from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from dataclasses import dataclass, field
 from importlib import resources
 from pathlib import Path
 from types import FrameType
@@ -47,11 +49,12 @@ from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from bailey import __version__
+from bailey.conversations import notice_record, shown, to_history, to_records, user_record
 from bailey.keys import (
     FILE_NAME,
     EncryptedFileKeys,
@@ -63,7 +66,30 @@ from bailey.keys import (
     open_keys,
 )
 from bailey.paths import data_folder, ensure_data_folder
-from bailey.settings import PROVIDERS, SettingRefused, clean_address, clean_key, key_hint, key_name, provider
+from bailey.settings import (
+    PROVIDERS,
+    Connection,
+    SettingRefused,
+    clean_address,
+    clean_key,
+    clean_model,
+    key_hint,
+    key_name,
+    provider,
+)
+from bailey.solutions import (
+    DEFAULT_TEMPLATE,
+    MAX_PACKAGE_BYTES,
+    Assistant,
+    SolutionRefused,
+    assistant_from_form,
+    form_of,
+    read_solution,
+    template,
+    template_ids,
+    unzip_solution,
+    zip_solution,
+)
 from bailey.store import STORE_FILE, NewerStore, Store
 
 CSP = (
@@ -95,8 +121,15 @@ STATIC_FILES: Mapping[str, str] = {
 #: The only paths answered without the token: the page and its static files.
 PUBLIC_PATHS = frozenset({"/", *(f"/static/{name}" for name in STATIC_FILES)})
 
-#: No request Bailey's page sends is near this.
+#: No request Bailey's page sends is near this, but a message, which may carry a document.
 MAX_BODY = 64 * 1024
+
+#: A message may carry a pasted document to summarise.
+MAX_MESSAGE_BODY = 1024 * 1024
+MAX_MESSAGE_CHARACTERS = 200_000
+
+#: A conversation is named after its first message, cut at a word to about this length.
+TITLE_LENGTH = 60
 
 NOT_FROM_THE_PAGE = (
     "This request did not come from Bailey's page. Open Bailey at the address it printed when it started."
@@ -109,6 +142,11 @@ class AppState:
     store: Store
     keys: KeychainKeys | EncryptedFileKeys
     data_folder: Path
+    #: Where each provider's API is, when it is not the provider's own: the tests point
+    #: them at an emulator. Empty in the app, where each provider's address is its own.
+    base_urls: Mapping[str, str] = field(default_factory=dict)
+    #: Conversations with an answer still coming, which take no second message until it ends.
+    running: set[str] = field(default_factory=set)
 
 
 class Refusal(Exception):
@@ -171,12 +209,17 @@ class Guard:
         await self.app(scope, receive, send_with_headers)
 
 
-async def _json_body(request: Request) -> dict[str, Any]:
+async def _read_body(request: Request, limit: int) -> bytes:
     body = bytearray()
     async for chunk in request.stream():
         body.extend(chunk)
-        if len(body) > MAX_BODY:
+        if len(body) > limit:
             raise Refusal(413, "That request is larger than Bailey accepts.")
+    return bytes(body)
+
+
+async def _json_body(request: Request, limit: int = MAX_BODY) -> dict[str, Any]:
+    body = await _read_body(request, limit)
     try:
         value = json.loads(bytes(body) or b"{}")
     except ValueError as error:
@@ -194,7 +237,7 @@ def _answers(handler: Callable[[Request], Awaitable[Response]]) -> Callable[[Req
             return await handler(request)
         except Refusal as refusal:
             return _error(refusal.status, refusal.message)
-        except SettingRefused as refusal:
+        except (SettingRefused, SolutionRefused) as refusal:
             return _error(400, str(refusal))
         except KeysLocked:
             return _error(423, "Unlock your keys with their passphrase first.")
@@ -224,12 +267,99 @@ def _settings_view(state: AppState) -> dict[str, Any]:
             value = state.keys.get(key_name(entry.id))
             described["key"] = {"saved": value is not None, "hint": key_hint(value) if value else ""}
         providers.append(described)
+    models = state.store.get_setting("models") or {}
     return {
         "provider": chosen if any(entry.id == chosen for entry in PROVIDERS) else None,
         "address": state.store.get_setting("address") or "",
+        "models": {entry.id: str(models.get(entry.id) or entry.default_model) for entry in PROVIDERS},
         "providers": providers,
         "keys": _keys_status(state.keys),
     }
+
+
+def _connection(state: AppState) -> Connection:
+    """How to reach the model the person chose, or a refusal naming the setting still missing."""
+
+    chosen = state.store.get_setting("provider")
+    if not chosen:
+        raise Refusal(409, "Choose an AI provider in Settings first.")
+    setup = provider(chosen)
+    model = str((state.store.get_setting("models") or {}).get(setup.id) or setup.default_model)
+    if not model:
+        raise Refusal(409, "Give the model's name in Settings first.")
+    base_url = state.base_urls.get(setup.id) or setup.base_url or str(state.store.get_setting("address") or "")
+    if not base_url:
+        raise Refusal(409, "Give your server's address in Settings first.")
+    key = state.keys.get(key_name(setup.id)) or ""
+    if setup.key_required and not key:
+        raise Refusal(409, f"Save your {setup.name} key in Settings first.")
+    return Connection(provider=setup.id, model=model, api_key=key, base_url=base_url)
+
+
+def _ensure_an_assistant(state: AppState) -> None:
+    """A first start, or one after the last assistant was deleted, gets the default one: never an empty canvas."""
+
+    if not state.store.list_assistants():
+        assistant_id = uuid.uuid4().hex
+        state.store.put_assistant(assistant_id, template(DEFAULT_TEMPLATE).as_dict())
+        state.store.set_setting("assistant", assistant_id)
+
+
+def _active_assistant_id(state: AppState) -> str:
+    _ensure_an_assistant(state)
+    chosen = state.store.get_setting("assistant")
+    known = [assistant_id for assistant_id, _ in state.store.list_assistants()]
+    if chosen in known:
+        return str(chosen)
+    state.store.set_setting("assistant", known[0])
+    return known[0]
+
+
+def _assistant(state: AppState, assistant_id: str) -> Assistant:
+    record = state.store.get_assistant(assistant_id)
+    if record is None:
+        raise Refusal(404, "Bailey has no assistant by that id.")
+    return Assistant.from_dict(record)
+
+
+def _assistants_view(state: AppState) -> dict[str, Any]:
+    active = _active_assistant_id(state)
+    assistants = []
+    for assistant_id, record in state.store.list_assistants():
+        assistants.append(
+            {
+                "id": assistant_id,
+                "title": record["title"],
+                "description": record.get("description") or "",
+                "skills": [skill["name"] for skill in record.get("skills") or []],
+                "starters": list(record.get("starters") or []),
+            }
+        )
+    templates = []
+    for template_id in template_ids():
+        made = template(template_id)
+        templates.append({"id": template_id, "title": made.title, "description": made.description})
+    return {"active": active, "assistants": assistants, "templates": templates}
+
+
+def _title_for(text: str) -> str:
+    line = " ".join(text.split())
+    if len(line) <= TITLE_LENGTH:
+        return line or "New conversation"
+    cut = line[:TITLE_LENGTH].rsplit(" ", 1)[0] or line[:TITLE_LENGTH]
+    return cut + "…"
+
+
+def _without_the_prompt(records: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
+    """The run's records less the person's message, which was stored before the run began."""
+
+    if records and records[0]["role"] == "user" and records[0]["parts"] == [{"kind": "text", "text": text}]:
+        return records[1:]
+    return records
+
+
+def _event(data: dict[str, Any]) -> bytes:
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n".encode()
 
 
 def _file_keys(state: AppState) -> EncryptedFileKeys:
@@ -270,11 +400,17 @@ def build_app(state: AppState) -> ASGIApp:
         body = await _json_body(request)
         chosen = provider(body.get("provider"))
         address = clean_address(body.get("address")) if chosen.needs_address else None
+        # Saved as given, one setting at a time; a chat names the setting still missing.
+        model = clean_model(body["model"]) if body.get("model") not in (None, "") else None
 
         def save() -> dict[str, Any]:
             state.store.set_setting("provider", chosen.id)
             if address is not None:
                 state.store.set_setting("address", address)
+            if model is not None:
+                models = dict(state.store.get_setting("models") or {})
+                models[chosen.id] = model
+                state.store.set_setting("models", models)
             return _settings_view(state)
 
         return JSONResponse(await run_in_threadpool(save))
@@ -342,6 +478,212 @@ def build_app(state: AppState) -> ASGIApp:
         await run_in_threadpool(keys.reset)
         return JSONResponse(await run_in_threadpool(_settings_view, state))
 
+    # -- assistants ------------------------------------------------------------
+
+    @_answers
+    async def list_assistants(request: Request) -> Response:
+        return JSONResponse(await run_in_threadpool(_assistants_view, state))
+
+    @_answers
+    async def create_assistant(request: Request) -> Response:
+        template_id = (await _json_body(request)).get("template")
+        if not isinstance(template_id, str) or template_id not in template_ids():
+            raise Refusal(400, "Choose one of the templates listed.")
+
+        def create() -> dict[str, Any]:
+            _ensure_an_assistant(state)  # the default is there whatever was asked for first
+            assistant_id = uuid.uuid4().hex
+            state.store.put_assistant(assistant_id, template(template_id).as_dict())
+            return {"id": assistant_id, **_assistants_view(state)}
+
+        return JSONResponse(await run_in_threadpool(create))
+
+    @_answers
+    async def import_assistant(request: Request) -> Response:
+        data = await _read_body(request, MAX_PACKAGE_BYTES)
+        made = read_solution(unzip_solution(data))
+
+        def save() -> dict[str, Any]:
+            _ensure_an_assistant(state)
+            assistant_id = uuid.uuid4().hex
+            state.store.put_assistant(assistant_id, made.as_dict())
+            return {"id": assistant_id, **_assistants_view(state)}
+
+        return JSONResponse(await run_in_threadpool(save))
+
+    @_answers
+    async def read_assistant(request: Request) -> Response:
+        assistant_id = request.path_params["assistant_id"]
+        made = await run_in_threadpool(_assistant, state, assistant_id)
+        return JSONResponse({"id": assistant_id, **form_of(made)})
+
+    @_answers
+    async def write_assistant(request: Request) -> Response:
+        assistant_id = request.path_params["assistant_id"]
+        form = await _json_body(request, MAX_MESSAGE_BODY)
+
+        def save() -> dict[str, Any]:
+            edited = assistant_from_form(form, _assistant(state, assistant_id))
+            state.store.put_assistant(assistant_id, edited.as_dict())
+            return {"id": assistant_id, **form_of(edited)}
+
+        return JSONResponse(await run_in_threadpool(save))
+
+    @_answers
+    async def use_assistant(request: Request) -> Response:
+        assistant_id = request.path_params["assistant_id"]
+
+        def use() -> dict[str, Any]:
+            _assistant(state, assistant_id)
+            state.store.set_setting("assistant", assistant_id)
+            return _assistants_view(state)
+
+        return JSONResponse(await run_in_threadpool(use))
+
+    @_answers
+    async def export_assistant(request: Request) -> Response:
+        made = await run_in_threadpool(_assistant, state, request.path_params["assistant_id"])
+        return Response(
+            zip_solution(made),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{made.name}.zip"'},
+        )
+
+    @_answers
+    async def delete_assistant(request: Request) -> Response:
+        assistant_id = request.path_params["assistant_id"]
+
+        def delete() -> dict[str, Any]:
+            _assistant(state, assistant_id)
+            state.store.delete_assistant(assistant_id)
+            return _assistants_view(state)
+
+        return JSONResponse(await run_in_threadpool(delete))
+
+    # -- conversations -----------------------------------------------------------
+
+    @_answers
+    async def list_conversations(request: Request) -> Response:
+        def listed() -> dict[str, Any]:
+            assistant_id = request.query_params.get("assistant") or _active_assistant_id(state)
+            _assistant(state, assistant_id)
+            return {"assistant": assistant_id, "conversations": state.store.list_conversations(assistant_id)}
+
+        return JSONResponse(await run_in_threadpool(listed))
+
+    @_answers
+    async def create_conversation(request: Request) -> Response:
+        wanted = (await _json_body(request)).get("assistant")
+
+        def create() -> dict[str, Any]:
+            assistant_id = wanted if isinstance(wanted, str) and wanted else _active_assistant_id(state)
+            _assistant(state, assistant_id)
+            conversation_id = uuid.uuid4().hex
+            state.store.create_conversation(conversation_id, assistant_id, "New conversation")
+            return {"id": conversation_id, "assistant": assistant_id, "title": "New conversation", "messages": []}
+
+        return JSONResponse(await run_in_threadpool(create))
+
+    def _conversation(conversation_id: str) -> dict[str, str]:
+        found = state.store.get_conversation(conversation_id)
+        if found is None:
+            raise Refusal(404, "Bailey has no conversation by that id.")
+        return found
+
+    @_answers
+    async def read_conversation(request: Request) -> Response:
+        conversation_id = request.path_params["conversation_id"]
+
+        def read() -> dict[str, Any]:
+            found = _conversation(conversation_id)
+            return {
+                "id": conversation_id,
+                "assistant": found["assistant_id"],
+                "title": found["title"],
+                "running": conversation_id in state.running,
+                "messages": shown(state.store.messages(conversation_id)),
+            }
+
+        return JSONResponse(await run_in_threadpool(read))
+
+    @_answers
+    async def delete_conversation(request: Request) -> Response:
+        conversation_id = request.path_params["conversation_id"]
+
+        def delete() -> dict[str, Any]:
+            found = _conversation(conversation_id)
+            state.store.delete_conversation(conversation_id)
+            return {
+                "assistant": found["assistant_id"],
+                "conversations": state.store.list_conversations(found["assistant_id"]),
+            }
+
+        return JSONResponse(await run_in_threadpool(delete))
+
+    @_answers
+    async def send_message(request: Request) -> Response:
+        conversation_id = request.path_params["conversation_id"]
+        text = (await _json_body(request, MAX_MESSAGE_BODY)).get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise Refusal(400, "Write a message first.")
+        if len(text) > MAX_MESSAGE_CHARACTERS:
+            raise Refusal(
+                400,
+                f"That message is {len(text):,} characters; Bailey sends {MAX_MESSAGE_CHARACTERS:,} at most in one.",
+            )
+        text = text.strip()
+
+        def prepare() -> tuple[Connection, Assistant, list[Any]]:
+            found = _conversation(conversation_id)
+            made = _assistant(state, found["assistant_id"])
+            connection = _connection(state)
+            if conversation_id in state.running:
+                raise Refusal(409, "An answer is still coming in this conversation. Wait for it to finish.")
+            stored = state.store.messages(conversation_id)
+            history = to_history(stored)
+            state.store.append_messages(conversation_id, [user_record(text)])
+            if not stored:
+                state.store.rename_conversation(conversation_id, _title_for(text))
+            state.running.add(conversation_id)
+            return connection, made, history
+
+        connection, made, history = await run_in_threadpool(prepare)
+
+        async def stream() -> AsyncIterator[bytes]:
+            # Imported here: the agent core takes seconds to load, which a start of the app
+            # should not wait for. serve() loads it in the background once the server is up.
+            from bailey.agent import answer
+
+            try:
+                async for event in answer(connection, made, history, text):
+                    if event["type"] == "done":
+                        records = _without_the_prompt(
+                            to_records(event["messages"], provider=connection.provider, model=connection.model), text
+                        )
+                        if records:
+                            records[-1]["usage"] = event["usage"]
+                            records[-1]["estimate"] = event["estimate"]
+                        await run_in_threadpool(state.store.append_messages, conversation_id, records)
+                        yield _event(
+                            {
+                                "type": "done",
+                                "usage": event["usage"],
+                                "estimate": event["estimate"],
+                                "model": connection.model,
+                            }
+                        )
+                    elif event["type"] == "error":
+                        await run_in_threadpool(
+                            state.store.append_messages, conversation_id, [notice_record(event["message"])]
+                        )
+                        yield _event(event)
+                    else:
+                        yield _event(event)
+            finally:
+                state.running.discard(conversation_id)
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
+
     app = Starlette(
         routes=[
             Route("/", index),
@@ -354,6 +696,19 @@ def build_app(state: AppState) -> ASGIApp:
             Route("/api/keys/reset", reset_keys, methods=["POST"]),
             Route("/api/keys/{provider}", save_key, methods=["PUT"]),
             Route("/api/keys/{provider}", remove_key, methods=["DELETE"]),
+            Route("/api/assistants", list_assistants, methods=["GET"]),
+            Route("/api/assistants", create_assistant, methods=["POST"]),
+            Route("/api/assistants/import", import_assistant, methods=["POST"]),
+            Route("/api/assistants/{assistant_id}", read_assistant, methods=["GET"]),
+            Route("/api/assistants/{assistant_id}", write_assistant, methods=["PUT"]),
+            Route("/api/assistants/{assistant_id}", delete_assistant, methods=["DELETE"]),
+            Route("/api/assistants/{assistant_id}/use", use_assistant, methods=["POST"]),
+            Route("/api/assistants/{assistant_id}/export", export_assistant, methods=["GET"]),
+            Route("/api/conversations", list_conversations, methods=["GET"]),
+            Route("/api/conversations", create_conversation, methods=["POST"]),
+            Route("/api/conversations/{conversation_id}", read_conversation, methods=["GET"]),
+            Route("/api/conversations/{conversation_id}", delete_conversation, methods=["DELETE"]),
+            Route("/api/conversations/{conversation_id}/messages", send_message, methods=["POST"]),
         ]
     )
     return Guard(app, state.token)
@@ -381,6 +736,14 @@ class _Stopped(BaseException):
 
 def _stop_on_terminate(signum: int, frame: FrameType | None) -> None:
     raise _Stopped
+
+
+def _warm_up() -> None:
+    """Load the agent core in the background, so the first message does not wait seconds for it."""
+
+    # A failure here surfaces, with its sentence, when a message needs the core.
+    with contextlib.suppress(Exception):
+        import bailey.agent  # noqa: F401
 
 
 def _open_when_ready(server: uvicorn.Server, launch: str, out: TextIO) -> None:
@@ -451,6 +814,7 @@ def serve(
         out.flush()
         if open_browser:
             threading.Thread(target=_open_when_ready, args=(server, launch, out), daemon=True).start()
+        threading.Thread(target=_warm_up, daemon=True).start()
         # uvicorn shuts down gracefully on Ctrl+C or a terminate signal, then raises the
         # signal again: Ctrl+C as KeyboardInterrupt, and a terminate signal through the
         # handler in place before it started, which by default ends the process at once

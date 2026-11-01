@@ -1,0 +1,16 @@
+{
+  "format_version": "0.1",
+  "name": "everyday-helper",
+  "title": "Everyday helper",
+  "description": "A general assistant for everyday writing: it summarises what you give it and drafts emails.",
+  "instructions": "skills/everyday-helper/SKILL.md",
+  "persona": "persona.md",
+  "starters": [
+    "Summarise this for me: ",
+    "Draft a reply to this email: "
+  ],
+  "skills": [
+    {"name": "summarise", "path": "skills/summarise/SKILL.md"},
+    {"name": "draft-email", "path": "skills/draft-email/SKILL.md"}
+  ]
+}

@@ -9,6 +9,7 @@ address.
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -28,22 +29,57 @@ class Provider:
     key_url: str
     #: Whether the user gives the server's address.
     needs_address: bool
+    #: The model a new setup starts on, which the user may change; ``""`` for none.
+    default_model: str
+    #: Where its API is. Always passed to the SDK, never left to an environment variable;
+    #: ``""`` where the user gives the address.
+    base_url: str
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 PROVIDERS: tuple[Provider, ...] = (
-    Provider("anthropic", "Anthropic", True, "https://console.anthropic.com/settings/keys", False),
-    Provider("openai", "OpenAI", True, "https://platform.openai.com/api-keys", False),
-    Provider("openai-compatible", "An OpenAI-compatible server, local models included", False, "", True),
+    Provider(
+        "anthropic",
+        "Anthropic",
+        True,
+        "https://console.anthropic.com/settings/keys",
+        False,
+        "claude-sonnet-5-5",
+        "https://api.anthropic.com",
+    ),
+    Provider(
+        "openai",
+        "OpenAI",
+        True,
+        "https://platform.openai.com/api-keys",
+        False,
+        "gpt-5-mini",
+        "https://api.openai.com/v1",
+    ),
+    Provider("openai-compatible", "An OpenAI-compatible server, local models included", False, "", True, "", ""),
 )
+
+#: A model's name as providers spell them: ``claude-sonnet-5-5``, ``gpt-5-mini``,
+#: ``qwen3:8b``, ``meta-llama/Llama-3.1-8B-Instruct``.
+_MODEL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$")
 
 _BY_ID = {provider.id: provider for provider in PROVIDERS}
 
 
 class SettingRefused(ValueError):
     """A value Bailey will not save, with the sentence that says why."""
+
+
+@dataclass(frozen=True)
+class Connection:
+    """What a run needs to reach a model: the provider, its address, the model, and the key."""
+
+    provider: str
+    model: str
+    api_key: str
+    base_url: str
 
 
 def provider(provider_id: object) -> Provider:
@@ -87,3 +123,10 @@ def key_hint(key: str) -> str:
     """What the page may show of a saved key: its last four characters, when it is long enough to spare them."""
 
     return "…" + key[-4:] if len(key) >= 12 else "saved"
+
+
+def clean_model(raw: object) -> str:
+    text = raw.strip() if isinstance(raw, str) else ""
+    if not _MODEL_NAME.fullmatch(text):
+        raise SettingRefused("Give the model's name as the provider spells it, such as claude-sonnet-5-5 or qwen3:8b.")
+    return text

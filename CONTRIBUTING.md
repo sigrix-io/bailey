@@ -2,7 +2,8 @@
 
 Thanks for looking. Bailey's first release is a single command, `bailey doctor`;
 the assistant itself is being built toward 0.1, and its frame (the local server,
-the page, settings and keys) is on `main`.
+the page, settings and keys, and chat with assistants and their skills) is on
+`main`.
 
 ## What fits now
 
@@ -26,6 +27,12 @@ the page, settings and keys) is on `main`.
   it should not be.
 - Markup built from a string in the page's scripts. The page writes text with
   `textContent`; a test fails on `innerHTML` and its relatives.
+- A conversation stored in a library's own message schema. Bailey stores its
+  own format, `bailey-message/1` (`src/bailey/conversations.py`), and converts
+  at the edge, so a dependency's next version moves no one's history.
+- A skill's body in every request. The model sees a skill's name and
+  description, and its body arrives when `load_skill` asks for it; the contract
+  tests fail when a body is sent unasked.
 
 ## Working on it
 
@@ -39,6 +46,11 @@ ruff check . && ruff format --check . && mypy && pytest
 keeps a second setup apart from your own, and `BAILEY_KEYS=file` keeps its keys
 out of your keychain. No test writes to a real keychain except
 `tests/test_real_keychain.py`, which runs only with `BAILEY_TEST_REAL_KEYCHAIN=1`.
+
+Chat is tested on `tests/emulated_providers.py`, which speaks each provider's
+own wire protocol and refuses what the real services refuse, so no test needs a
+key. A PydanticAI or SDK version bump lands only once
+`tests/test_agent_contract.py` passes on it.
 
 Each doctor check takes what it probes as an argument, so a test can hand it a
 machine that lacks something. A new check comes with a test on both sides.
