@@ -47,10 +47,11 @@ def environment(home: Path, extra: Mapping[str, str] | None = None) -> dict[str,
 
 
 def call(base: str, method: str, path: str, body: Any = None, token: str | None = None) -> tuple[int, Any]:
-    headers = {"Content-Type": "application/json"}
+    # Bytes go as they are, as a solution's zip does; anything else as JSON.
+    headers = {"Content-Type": "application/zip" if isinstance(body, bytes) else "application/json"}
     if token is not None:
         headers["Authorization"] = f"Bearer {token}"
-    data = None if body is None else json.dumps(body).encode("utf-8")
+    data = body if isinstance(body, bytes) else None if body is None else json.dumps(body).encode("utf-8")
     # Always http://127.0.0.1:<port>/, the app under test.
     request = urllib.request.Request(base + path.lstrip("/"), data=data, method=method, headers=headers)  # noqa: S310
     try:

@@ -17,25 +17,44 @@ small reference files, reach the model only when it calls ``load_skill`` for tha
 skill, so an assistant with many skills pays for the one it uses. The instructions are
 the stable start of every request, cached where the provider caches
 (``anthropic_cache_instructions``), so the documents S8 adds to them stay cheap to send.
+
+**Tools** (design §3.2, steps 3 and 5) come from the assistant's MCP servers, which the
+tool host keeps running. A read its server declares runs without asking. A write, any
+tool its server's declaration leaves out, and every tool of a server with no declaration
+asks first, unless the person allowed it always for this assistant. A call that asks
+ends the run there (``DeferredToolRequests``): the page puts the question, and the answer
+resumes the run from the stored conversation, so a question survives a reload or a
+restart. "No" reaches the model as the tool's result.
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
 from decimal import Decimal
 from typing import Any
 
 import pydantic_ai
 from genai_prices import calc_price
-from pydantic_ai import Agent, AgentRunResultEvent
+from pydantic_ai import (
+    Agent,
+    AgentRunResultEvent,
+    DeferredToolRequests,
+    DeferredToolResults,
+    RunContext,
+    ToolApproved,
+    ToolDenied,
+)
 from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError, UnexpectedModelBehavior
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
+    FunctionToolResultEvent,
     ModelMessage,
+    ModelRequest,
     PartDeltaEvent,
     PartStartEvent,
     TextPart,
     TextPartDelta,
+    ToolReturnPart,
 )
 from pydantic_ai.models import Model
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
@@ -43,17 +62,39 @@ from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
+from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RunUsage
 
 from bailey.settings import Connection
-from bailey.solutions import Assistant, Skill
+from bailey.solutions import Assistant, Server, Skill
 
 pydantic_ai.BANNER_ENABLED = False
 
-__all__ = ["LOAD_SKILL", "Connection", "answer", "build_agent", "build_model", "context", "estimate", "skill_text"]
+__all__ = [
+    "DECLINED",
+    "LOAD_SKILL",
+    "Connection",
+    "ToolNameClash",
+    "answer",
+    "asks_first",
+    "build_agent",
+    "build_model",
+    "context",
+    "estimate",
+    "skill_text",
+    "tool_servers",
+]
 
 #: The tool through which a skill's body reaches the model.
 LOAD_SKILL = "load_skill"
+
+#: What the model is told, as the tool's result, when the person says no.
+DECLINED = "The person declined this action, so it did not run. Tell them it did not happen; do not try another way."
+
+
+class ToolNameClash(Exception):
+    """Two tools a model could not tell apart, with the sentence that says which."""
+
 
 #: The price data's name for each provider whose prices it carries. A local server has
 #: none, and its answers carry no estimate.
@@ -104,11 +145,65 @@ def skill_text(skill: Skill) -> str:
     return "\n\n".join(parts)
 
 
-def build_agent(connection: Connection, assistant: Assistant) -> Agent[None, str]:
-    agent: Agent[None, str] = Agent(
+ApprovalRule = Callable[[RunContext[None], ToolDefinition, dict[str, Any]], bool]
+
+
+def asks_first(server: Server, granted: Collection[tuple[str, str]]) -> ApprovalRule:
+    """Whether a call of one of this server's tools waits for the person.
+
+    It does for a declared write, a tool the declaration leaves out and every tool of a
+    server with no declaration, unless the person allowed that tool always for this
+    assistant (``granted`` holds ``(server, tool)`` pairs).
+    """
+
+    def rule(ctx: RunContext[None], tool_def: ToolDefinition, args: dict[str, Any]) -> bool:
+        return server.asks_before(tool_def.name) and (server.name, tool_def.name) not in granted
+
+    return rule
+
+
+async def tool_servers(toolsets: Mapping[str, Any]) -> dict[str, str]:
+    """Each tool's server, by the tool's name.
+
+    A tool two servers both offer, or one named like Bailey's own ``load_skill``, is
+    refused with a sentence: the model calls a tool by its name alone.
+    """
+
+    owners: dict[str, str] = {}
+    for server_name, toolset in toolsets.items():
+        for tool in await toolset.list_tools():
+            if tool.name == LOAD_SKILL:
+                raise ToolNameClash(
+                    f"The {server_name} tool server offers a tool named {LOAD_SKILL}, which is Bailey's own."
+                )
+            if tool.name in owners:
+                raise ToolNameClash(
+                    f"The {owners[tool.name]} and {server_name} tool servers both offer a tool named {tool.name}, "
+                    "and a model calls a tool by its name alone."
+                )
+            owners[tool.name] = server_name
+    return owners
+
+
+def build_agent(
+    connection: Connection,
+    assistant: Assistant,
+    toolsets: Mapping[str, Any] | None = None,
+    granted: Collection[tuple[str, str]] = (),
+) -> Agent[None, Any]:
+    """The assistant's agent: its context, ``load_skill``, and each running server's tools behind the approval rule."""
+
+    held = [
+        toolset.approval_required(asks_first(server, granted))
+        for server in assistant.servers
+        if (toolset := (toolsets or {}).get(server.name)) is not None
+    ]
+    agent: Agent[None, Any] = Agent(
         build_model(connection),
         instructions=context(assistant),
         model_settings=model_settings(connection),
+        toolsets=held,
+        output_type=[str, DeferredToolRequests] if held else str,
     )
     names = [skill.name for skill in assistant.skills]
 
@@ -173,40 +268,117 @@ def explain_failure(error: BaseException, connection: Connection) -> str:
         return f"Bailey could not reach {where} at {connection.base_url}."
     if isinstance(error, UnexpectedModelBehavior):
         return f"The model answered in a way Bailey could not use: {error}"
+    if isinstance(error, ToolNameClash):
+        return str(error)
+    if type(error).__module__.split(".")[0] in ("mcp", "fastmcp", "anyio"):
+        return (
+            f"A tool server stopped answering ({type(error).__name__}). Bailey starts it again with the next message."
+        )
     return f"The answer stopped: {type(error).__name__}."
+
+
+def _settled(messages: Sequence[ModelMessage]) -> list[ModelMessage]:
+    """A failed run's messages up to its last whole step.
+
+    A model's reply is kept only with the request that answers it: a reply whose tool
+    calls never got their results would leave calls no provider accepts unanswered. A
+    tool that ran keeps its result, so a write that happened is never asked about again.
+    """
+
+    kept = list(messages)
+    while kept and not isinstance(kept[-1], ModelRequest):
+        kept.pop()
+    return kept
+
+
+def _messages_so_far(events: Any) -> list[ModelMessage]:
+    if events is None:
+        return []
+    try:
+        return list(events.new_messages())
+    except Exception:  # a run that never started has none
+        return []
+
+
+def _call(part: Any, servers: Mapping[str, str]) -> dict[str, Any]:
+    return {
+        "id": part.tool_call_id,
+        "tool": part.tool_name,
+        "server": servers.get(part.tool_name, ""),
+        "args": part.args_as_dict(),
+    }
 
 
 async def answer(
     connection: Connection,
     assistant: Assistant,
     history: Sequence[ModelMessage],
-    text: str,
+    text: str | None,
+    *,
+    toolsets: Mapping[str, Any] | None = None,
+    granted: Collection[tuple[str, str]] = (),
+    decisions: Mapping[str, bool] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Stream one answer as events for the page.
 
-    ``text`` events carry the answer as it arrives, a ``skill`` event names each skill the
-    model loads, and the last event is ``done`` (with the run's new messages, its usage
-    and an estimate) or ``error`` (with a sentence).
+    ``text`` is the person's message, or ``None`` when a paused run resumes with
+    ``decisions``: the person's answer to each call that asked, ``True`` to run it.
+
+    ``text`` events carry the answer as it arrives; ``skill`` names each skill the model
+    loads; ``tool`` and ``tool_result`` follow each call of a server's tool; ``approval``
+    lists the calls a run stopped to ask about. The last event is ``done`` (the run's new
+    messages, its usage, an estimate, the calls it asked about, and each tool's server) or
+    ``error`` (a sentence, and the messages of the run's last whole step).
     """
 
-    agent = build_agent(connection, assistant)
+    servers: dict[str, str] = {}
+    events: Any = None
     try:
-        async with agent.run_stream_events(text, message_history=list(history)) as events:
+        servers = await tool_servers(toolsets or {})
+        agent = build_agent(connection, assistant, toolsets, granted)
+        results = None
+        if decisions is not None:
+            results = DeferredToolResults(
+                approvals={
+                    call_id: ToolApproved() if allowed else ToolDenied(DECLINED)
+                    for call_id, allowed in decisions.items()
+                }
+            )
+        async with agent.run_stream_events(
+            text, message_history=list(history), deferred_tool_results=results
+        ) as events:
             async for event in events:
                 if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart) and event.part.content:
                     yield {"type": "text", "text": event.part.content}
                 elif isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
                     if event.delta.content_delta:
                         yield {"type": "text", "text": event.delta.content_delta}
-                elif isinstance(event, FunctionToolCallEvent) and event.part.tool_name == LOAD_SKILL:
-                    yield {"type": "skill", "name": str(event.part.args_as_dict().get("name", ""))}
+                elif isinstance(event, FunctionToolCallEvent):
+                    if event.part.tool_name == LOAD_SKILL:
+                        yield {"type": "skill", "name": str(event.part.args_as_dict().get("name", ""))}
+                    else:
+                        yield {"type": "tool", **_call(event.part, servers)}
+                elif isinstance(event, FunctionToolResultEvent) and event.part.tool_name not in (LOAD_SKILL, None):
+                    outcome = event.part.outcome if isinstance(event.part, ToolReturnPart) else "retry"
+                    yield {"type": "tool_result", "id": event.part.tool_call_id, "outcome": outcome}
                 elif isinstance(event, AgentRunResultEvent):
+                    output = event.result.output
+                    asked = list(output.approvals) if isinstance(output, DeferredToolRequests) else []
+                    if asked:
+                        yield {"type": "approval", "calls": [_call(call, servers) for call in asked]}
                     usage = event.result.usage
                     yield {
                         "type": "done",
                         "messages": event.result.new_messages(),
                         "usage": usage_of(usage),
                         "estimate": estimate(connection, usage),
+                        "asked": [call.tool_call_id for call in asked],
+                        "servers": servers,
                     }
     except Exception as error:  # every failure ends the stream with a sentence the page can show
-        yield {"type": "error", "message": explain_failure(error, connection)}
+        yield {
+            "type": "error",
+            "message": explain_failure(error, connection),
+            "messages": _settled(_messages_so_far(events)),
+            "servers": servers,
+        }

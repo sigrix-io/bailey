@@ -6,8 +6,9 @@ it serves is exercised, and the test fails on any address that is not loopback. 
 exception the rule allows is the provider the person chose: the chat run below has it
 on this computer too (the emulated providers, as an OpenAI-compatible server), so even
 a whole chat through the agent core, its SDKs and its price data connects to nothing
-else. A canary run plants an outbound connection first, so a recorder that records
-nothing cannot pass for an app that sends nothing.
+else. The tools run does it again with a solution's MCP server, through FastMCP and the
+MCP SDK, asking before a write and answered. A canary run plants an outbound connection
+first, so a recorder that records nothing cannot pass for an app that sends nothing.
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ from typing import Any
 
 import emulated_providers as emulator
 from running import Running
+
+from bailey.solutions import Assistant, Server, Skill, zip_solution
 
 PASSPHRASE = "correct horse battery"
 
@@ -80,6 +83,43 @@ def _chat(bailey: Running) -> None:
     assert '"name": "summarise"' in streamed
 
 
+def _tool_chat(bailey: Running, drafts: Path) -> None:
+    """A reply through a solution's MCP server: a read, a write that asks, and the answer once."""
+
+    provider = emulator.serve_in_background()
+    settings = {"provider": "openai-compatible", "address": provider + "/local/v1", "model": "qwen3:8b"}
+    assert bailey.call("PUT", "/api/settings", settings)[0] == 200
+    mailbox = Server(
+        "mailbox",
+        command=sys.executable,
+        args=(str(Path(__file__).parent / "tool_servers" / "mailbox.py"),),
+        env=("MAILBOX_DRAFTS",),
+        tools=("search_threads", "create_draft"),
+        write_tools=("create_draft",),
+    )
+    shop = Assistant(
+        name="shop-helper",
+        title="Shop helper",
+        description="",
+        instructions=Skill("shop-helper", "Its instructions.", "You answer a small shop's email."),
+        servers=(mailbox,),
+    )
+    status, imported = bailey.call("POST", "/api/assistants/import", zip_solution(shop))
+    assert status == 200, imported
+    variable = f"/api/assistants/{imported['id']}/tools/mailbox/variables/MAILBOX_DRAFTS"
+    assert bailey.call("PUT", variable, {"value": str(drafts)})[0] == 200
+    status, conversation = bailey.call("POST", "/api/conversations", {"assistant": imported["id"]})
+    assert status == 200
+    url = f"/api/conversations/{conversation['id']}"
+    status, streamed = bailey.call("POST", url + "/messages", {"text": "Reply to the refund request."})
+    assert status == 200 and '"type": "approval"' in streamed, streamed
+    (call,) = bailey.call("GET", url)[1]["pending"]
+    status, streamed = bailey.call("POST", url + "/answers", {"answers": {call["id"]: "once"}})
+    events = [json.loads(line[6:]) for line in streamed.splitlines() if line.startswith("data: ")]
+    text = "".join(event["text"] for event in events if event["type"] == "text")
+    assert status == 200 and "Draft created in t-1042." in text, streamed
+
+
 def _run(tmp_path: Path, mode: str) -> list[dict[str, Any]]:
     recorder = tmp_path / "recorder.py"
     recorder.write_text(_RECORDER, encoding="utf-8")
@@ -106,6 +146,8 @@ def _run(tmp_path: Path, mode: str) -> list[dict[str, Any]]:
         assert [status for status, _ in exercised] == [200] * 10 + [401]
         if mode == "chat":
             _chat(bailey)
+        elif mode == "tools":
+            _tool_chat(bailey, tmp_path / "drafts.jsonl")
     finally:
         bailey.stop()
     if not log.exists():
@@ -127,3 +169,10 @@ def test_a_whole_chat_connects_to_nothing_but_this_computer_and_the_chosen_provi
     events = _run(tmp_path, "chat")
     assert any(event.get("event") == "socket.connect" for event in events), "the canary: the chat reached its provider"
     assert outbound(events) == []
+
+
+def test_a_chat_through_a_tool_server_connects_to_nothing_but_this_computer(tmp_path: Path) -> None:
+    events = _run(tmp_path, "tools")
+    assert any(event.get("event") == "socket.connect" for event in events), "the canary: the chat reached its provider"
+    assert outbound(events) == []
+    assert (tmp_path / "drafts.jsonl").read_text(encoding="utf-8").count("t-1042") == 1, "the write ran, once"

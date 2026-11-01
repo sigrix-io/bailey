@@ -7,8 +7,9 @@ versions. Each message is stored as a record in ``bailey-message/1``::
     {"format": "bailey-message/1", "role": "user" | "assistant" | "notice", "at": "<UTC time>",
      "parts": [
         {"kind": "text", "text": "..."},
-        {"kind": "tool_call", "id": "...", "tool": "load_skill", "args": {...}},
-        {"kind": "tool_result", "id": "...", "tool": "load_skill", "content": "..."},
+        {"kind": "tool_call", "id": "...", "tool": "create_draft", "args": {...},
+         "server": "mailbox", "asked": true},
+        {"kind": "tool_result", "id": "...", "tool": "create_draft", "content": "...", "outcome": "denied"},
         {"kind": "retry", "id": "...", "tool": "...", "content": "..."}],
      "model": "...", "provider": "...", "usage": {...}, "estimate": {...}}
 
@@ -17,13 +18,19 @@ results); an ``assistant`` record what came back; a ``notice`` what Bailey itsel
 such as a run that failed, which is shown and never sent. :func:`to_records` and
 :func:`to_history` are the only two places the library's types are named, so a version
 of it that moves its messages changes this module and no stored conversation.
+
+A tool call names its MCP server (``server``), and one the person was asked about
+carries ``asked``. A result's ``outcome`` is there when it is not a success: ``denied``
+when the person said no. A call that asked and has no result yet is a question the run
+is waiting on (:func:`pending`), so it survives a reload and a restart.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -56,10 +63,24 @@ def _content_text(content: object) -> str:
         return str(content)
 
 
-def to_records(messages: Sequence[ModelMessage], *, provider: str, model: str) -> list[dict[str, Any]]:
-    """The run's messages as Bailey stores them. A thinking part is dropped: it is the
-    model's own working, which nothing later in a conversation needs, and its signed form
-    is a provider's."""
+#: The outcomes a tool's result may record; a success is left unsaid.
+OUTCOMES = ("success", "failed", "denied", "interrupted")
+
+
+def to_records(
+    messages: Sequence[ModelMessage],
+    *,
+    provider: str,
+    model: str,
+    servers: Mapping[str, str] | None = None,
+    asked: Collection[str] = (),
+) -> list[dict[str, Any]]:
+    """The run's messages as Bailey stores them.
+
+    ``servers`` names each tool's MCP server, and ``asked`` holds the calls the run
+    stopped to ask the person about. A thinking part is dropped: it is the model's own
+    working, which nothing later in a conversation needs, and its signed form is a
+    provider's."""
 
     from pydantic_ai.messages import (
         ModelRequest,
@@ -79,14 +100,15 @@ def to_records(messages: Sequence[ModelMessage], *, provider: str, model: str) -
                 if isinstance(request_part, UserPromptPart):
                     parts.append({"kind": "text", "text": _content_text(request_part.content)})
                 elif isinstance(request_part, ToolReturnPart):
-                    parts.append(
-                        {
-                            "kind": "tool_result",
-                            "id": request_part.tool_call_id,
-                            "tool": request_part.tool_name,
-                            "content": request_part.model_response_str(),
-                        }
-                    )
+                    result: dict[str, Any] = {
+                        "kind": "tool_result",
+                        "id": request_part.tool_call_id,
+                        "tool": request_part.tool_name,
+                        "content": request_part.model_response_str(),
+                    }
+                    if request_part.outcome != "success":
+                        result["outcome"] = request_part.outcome
+                    parts.append(result)
                 elif isinstance(request_part, RetryPromptPart):
                     parts.append(
                         {
@@ -103,14 +125,18 @@ def to_records(messages: Sequence[ModelMessage], *, provider: str, model: str) -
                 if isinstance(response_part, TextPart) and response_part.content:
                     parts.append({"kind": "text", "text": response_part.content})
                 elif isinstance(response_part, ToolCallPart):
-                    parts.append(
-                        {
-                            "kind": "tool_call",
-                            "id": response_part.tool_call_id,
-                            "tool": response_part.tool_name,
-                            "args": response_part.args_as_dict(),
-                        }
-                    )
+                    call: dict[str, Any] = {
+                        "kind": "tool_call",
+                        "id": response_part.tool_call_id,
+                        "tool": response_part.tool_name,
+                        "args": response_part.args_as_dict(),
+                    }
+                    server = (servers or {}).get(response_part.tool_name)
+                    if server:
+                        call["server"] = server
+                    if response_part.tool_call_id in asked:
+                        call["asked"] = True
+                    parts.append(call)
             if parts:
                 records.append(
                     {
@@ -157,8 +183,14 @@ def to_history(records: Sequence[dict[str, Any]]) -> list[ModelMessage]:
                 if kind == "text":
                     request_parts.append(UserPromptPart(content=str(part.get("text", ""))))
                 elif kind == "tool_result":
+                    outcome = part.get("outcome")
                     request_parts.append(
-                        ToolReturnPart(tool_name=part["tool"], content=part.get("content", ""), tool_call_id=part["id"])
+                        ToolReturnPart(
+                            tool_name=part["tool"],
+                            content=part.get("content", ""),
+                            tool_call_id=part["id"],
+                            outcome=outcome if outcome in OUTCOMES else "success",
+                        )
                     )
                 elif kind == "retry":
                     request_parts.append(
@@ -187,6 +219,41 @@ def to_history(records: Sequence[dict[str, Any]]) -> list[ModelMessage]:
     return history
 
 
+def pending(records: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The calls a paused run is waiting on: each that asked the person and has no result yet."""
+
+    answered = {
+        part.get("id")
+        for record in records
+        for part in record.get("parts", [])
+        if part.get("kind") in ("tool_result", "retry")
+    }
+    return [
+        {
+            "id": part["id"],
+            "tool": str(part.get("tool", "")),
+            "server": str(part.get("server", "")),
+            "args": part.get("args") or {},
+        }
+        for record in records
+        if record.get("role") == "assistant"
+        for part in record.get("parts", [])
+        if part.get("kind") == "tool_call" and part.get("asked") and part.get("id") not in answered
+    ]
+
+
+def _added_usage(before: dict[str, Any] | None, more: dict[str, Any]) -> dict[str, Any]:
+    if not before:
+        return dict(more)
+    return {key: int(before.get(key) or 0) + int(more.get(key) or 0) for key in {**before, **more}}
+
+
+def _added_estimate(before: dict[str, str] | None, more: dict[str, str] | None) -> dict[str, str] | None:
+    if not before or not more:
+        return more or before
+    return {"usd": str(Decimal(before["usd"]) + Decimal(more["usd"]))}
+
+
 def shown_text(record: dict[str, Any]) -> str:
     """What the page shows of a record: its text parts, joined."""
 
@@ -198,10 +265,18 @@ def shown(records: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
 
     A message the person sent is one entry. Everything the model sent back for it, its
     tool calls and the text after them, is one ``assistant`` entry, naming the skills it
-    loaded and carrying the run's usage. A notice is its own entry. A record of a tool's
-    result went to the model and is not drawn.
+    loaded, each server tool it called and how that call ended, and carrying the run's
+    usage. A notice is its own entry. A record of a tool's result went to the model and
+    is not drawn; its outcome is drawn on the call.
     """
 
+    outcomes: dict[str, str] = {}
+    for record in records:
+        for part in record.get("parts", []):
+            if part.get("kind") == "tool_result":
+                outcomes[str(part.get("id"))] = str(part.get("outcome") or "success")
+            elif part.get("kind") == "retry":
+                outcomes[str(part.get("id"))] = "retry"
     entries: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
     for record in records:
@@ -219,17 +294,40 @@ def shown(records: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
         if role != "assistant":
             continue
         if current is None:
-            current = {"role": "assistant", "text": "", "skills": [], "usage": None, "estimate": None, "model": ""}
+            current = {
+                "role": "assistant",
+                "text": "",
+                "skills": [],
+                "tools": [],
+                "usage": None,
+                "estimate": None,
+                "model": "",
+            }
             entries.append(current)
         if text:
             current["text"] = f"{current['text']}\n\n{text}" if current["text"] else text
         for part in record.get("parts", []):
-            if part.get("kind") == "tool_call" and part.get("tool") == "load_skill":
+            if part.get("kind") != "tool_call":
+                continue
+            if part.get("tool") == "load_skill":
                 name = str((part.get("args") or {}).get("name", ""))
                 if name and name not in current["skills"]:
                     current["skills"].append(name)
+                continue
+            call_id = str(part.get("id"))
+            current["tools"].append(
+                {
+                    "id": call_id,
+                    "tool": str(part.get("tool", "")),
+                    "server": str(part.get("server", "")),
+                    "asked": bool(part.get("asked")),
+                    "outcome": outcomes.get(call_id, "waiting" if part.get("asked") else ""),
+                }
+            )
         if record.get("usage"):
-            current["usage"] = record["usage"]
-            current["estimate"] = record.get("estimate")
+            # A run that stopped to ask and the run its answer resumed make one entry, whose
+            # usage is both runs'.
+            current["usage"] = _added_usage(current["usage"], record["usage"])
+            current["estimate"] = _added_estimate(current["estimate"], record.get("estimate"))
         current["model"] = str(record.get("model") or current["model"])
     return entries

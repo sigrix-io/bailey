@@ -77,8 +77,9 @@ ruff check . && ruff format --check . && mypy && pytest
 ```
 
 From a checkout, `bailey` starts the app as far as 0.1 has come: chat with an assistant on your AI provider,
-skills loaded when a request needs them, assistants made from templates, edited, exported and imported, and
-settings with your provider's key. `CONTRIBUTING.md` says how to keep a development setup apart from your own.
+skills loaded when a request needs them, a solution's MCP tools with a question before any tool that changes
+something, assistants made from templates, edited, exported and imported, and settings with your provider's key.
+`CONTRIBUTING.md` says how to keep a development setup apart from your own.
 
 ## Licence
 
