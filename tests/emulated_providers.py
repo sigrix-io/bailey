@@ -14,8 +14,10 @@ the first line of what the call returned, so a test can tell which skill's body 
 the model. Offered the mailbox's tools (``tests/tool_servers/mailbox.py``), a request to
 reply searches the threads, then drafts the reply, then answers by quoting what the
 draft tool returned, so a test can tell whether a "no" reached the model; asked to do it
-"at once", it makes both calls in one reply, as models do. Every request is kept in
-``REQUESTS``.
+"at once", it makes both calls in one reply, as models do. Given documents, it answers as
+a grounded model should: from the passage that shares the question's words, citing its
+number, or by saying the documents do not cover it; offered ``search_knowledge``, it
+searches first, in its own words. Every request is kept in ``REQUESTS``.
 
 This proves the plumbing, never how well a model chooses a skill. The live run against
 the real providers is the owner's step before S6 merges (S1's ruling, guard 1).
@@ -26,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+import re
 import socket
 import threading
 import time
@@ -95,6 +98,43 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}_{next(_ids):04d}"
 
 
+#: What the scripted model says when no passage shares enough of a question's words.
+NOT_COVERED = "The documents do not cover that."
+
+_WORDS = re.compile(r"[a-z]+")
+_PASSAGE = re.compile(r"\[P(\d+)\]\s*(.*?)(?=\n\[P\d+\]|\n####|\n###|\Z)", re.S)
+_STOP = frozenset(
+    "a an and are as at be but by can could do does for from had has have how i if in is it its me my no not of "
+    "on or our so than that the their them then there these they this to too us was we what when where which "
+    "who why will with would you your did like".split()
+)
+
+
+def _stems(text: str) -> set[str]:
+    return {word[:5] for word in _WORDS.findall(text.lower()) if word not in _STOP}
+
+
+def _grounded(question: str, passages: list[tuple[str, str]]) -> Turn:
+    """The answer a grounded model gives: from the passage sharing the most of the question's words, or none."""
+    wanted = _stems(question)
+    best = max(passages, key=lambda passage: len(wanted & _stems(passage[1])), default=None)
+    if best is None or len(wanted & _stems(best[1])) < 2:
+        return Turn(NOT_COVERED)
+    first = " ".join(best[1].split()[:14])
+    return Turn(f"From the documents: {first} [P{best[0]}]")
+
+
+def _knowledge_turn(conversation: Conversation, asked: str) -> Turn | None:
+    if "## Your documents" not in conversation.system:
+        return None
+    if "search_knowledge" in conversation.tools:
+        done = dict(conversation.turn_results)
+        if "search_knowledge" not in done:
+            return Turn("", [Call(_new_id("call"), "search_knowledge", {"query": " ".join(sorted(_stems(asked)))})])
+        return _grounded(asked, _PASSAGE.findall(done["search_knowledge"]))
+    return _grounded(asked, _PASSAGE.findall(conversation.system.split("## Your documents", 1)[1]))
+
+
 #: The reply the scripted model drafts with the mailbox's write tool.
 DRAFT_BODY = "Sorry about the seam. We will refund order 5531 today."
 
@@ -117,7 +157,10 @@ def next_turn(conversation: Conversation) -> Turn:
     asked = conversation.user[-1].lower() if conversation.user else ""
     wanted = next((skill for word, skill in SKILL_WORDS if word in asked), None)
     turn: Turn
-    if "reply" in asked and {"search_threads", "create_draft"} <= set(conversation.tools):
+    knowledge = _knowledge_turn(conversation, asked)
+    if knowledge is not None:
+        turn = knowledge
+    elif "reply" in asked and {"search_threads", "create_draft"} <= set(conversation.tools):
         turn = _mailbox_turn(conversation, asked)
     elif "environment" in asked and "visible_environment" in conversation.tools:
         done = dict(conversation.turn_results)

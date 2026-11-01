@@ -207,8 +207,30 @@ def test_a_zip_with_one_folder_around_everything_reads_as_the_folder() -> None:
         ("name: x\ndescription: |\n  kept\n  apart", "kept\napart"),
         ("name: x\nmetadata:\n  version: 1\ndescription: after a nested value", "after a nested value"),
         ("# a comment\nname: x\ndescription: d", "d"),
+        (
+            "name: x\ndescription: Answers from the shop's documents (its policies and\n  catalog), and quotes them.",
+            "Answers from the shop's documents (its policies and catalog), and quotes them.",
+        ),
+        (
+            "name: x\ndescription: 'Drafts in the shop''s voice: acknowledge,\n  answer, sign off.'",
+            "Drafts in the shop's voice: acknowledge, answer, sign off.",
+        ),
+        ('name: x\ndescription: "first line\n  second line"', "first line second line"),
+        ("name: x\ndescription: one\n\n  two", "one\ntwo"),
     ],
-    ids=["plain", "double-quoted", "single-quoted", "folded", "literal", "nested-skipped", "comment"],
+    ids=[
+        "plain",
+        "double-quoted",
+        "single-quoted",
+        "folded",
+        "literal",
+        "nested-skipped",
+        "comment",
+        "plain-wrapped",
+        "single-quoted-wrapped",
+        "double-quoted-wrapped",
+        "plain-paragraphs",
+    ],
 )
 def test_the_frontmatter_reader_takes_what_skills_write(head: str, expected: str) -> None:
     values, body = parse_skill(f"---\n{head}\n---\n\nThe body.\n", "SKILL.md")
@@ -436,4 +458,105 @@ def test_an_mcp_file_the_package_names_but_does_not_carry_is_refused() -> None:
     files = _package_with({"mcpServers": {}})
     del files["mcp.json"]
     with pytest.raises(SolutionRefused, match="names mcp.json, but does not carry it"):
+        read_solution(files)
+
+
+# ---------------------------------------------------------------------------
+# Knowledge slots and their samples (S8)
+# ---------------------------------------------------------------------------
+
+FIXTURE = Path(__file__).parent / "fixtures" / "shop-replies"
+
+
+def _fixture_files() -> dict[str, bytes]:
+    return {path.relative_to(FIXTURE).as_posix(): path.read_bytes() for path in FIXTURE.rglob("*") if path.is_file()}
+
+
+def test_a_solutions_slots_and_samples_import_and_export_unchanged() -> None:
+    made = read_solution(_fixture_files())
+    assert [(slot.name, slot.accepts, slot.required) for slot in made.knowledge] == [
+        ("policies", ("md", "txt", "pdf"), True),
+        ("faq", ("md", "txt"), False),
+        ("catalog", ("csv",), False),
+    ]
+    assert [(sample.slot, sample.path) for sample in made.samples] == [
+        ("policies", "samples/policies.md"),
+        ("faq", "samples/faq.md"),
+        ("catalog", "samples/catalog.csv"),
+    ]
+    assert made.sample("policies") is not None and "## Returns" in made.sample("policies").text  # type: ignore[union-attr]
+    assert made.instructions.description.endswith("from the shop's documents."), "a wrapped description reads whole"
+    files = solution_files(made)
+    jsonschema.validate(json.loads(files["assistant.json"]), SCHEMA)
+    assert files["samples/faq.md"] == (FIXTURE / "samples" / "faq.md").read_bytes()
+    assert read_solution(files) == made
+    assert read_solution(unzip_solution(zip_solution(made))) == made
+    assert Assistant.from_dict(json.loads(json.dumps(made.as_dict()))) == made, "the stored record keeps them"
+
+
+def test_a_sample_bailey_cannot_read_as_text_is_left_for_the_persons_own_document() -> None:
+    files = _fixture_files()
+    files["samples/policies.md"] = b"\xff\xfe not text"
+    made = read_solution(files)
+    assert made.sample("policies") is None and made.sample("faq") is not None
+
+
+def test_answering_only_from_the_documents_is_baileys_setting_and_stays_out_of_the_package() -> None:
+    made = read_solution(_fixture_files())
+    form = form_of(made)
+    assert form["grounded_only"] is False
+    form["grounded_only"] = True
+    edited = assistant_from_form(form, made)
+    assert edited.grounded_only is True and edited.knowledge == made.knowledge and edited.samples == made.samples
+    assert Assistant.from_dict(edited.as_dict()).grounded_only is True
+    assert "grounded_only" not in solution_files(edited)["assistant.json"].decode()
+    with pytest.raises(SolutionRefused, match="grounded_only should be true or false"):
+        assistant_from_form({**form, "grounded_only": "yes"}, made)
+
+
+def _with_knowledge(knowledge: object) -> dict[str, bytes]:
+    files = _fixture_files()
+    document = json.loads(files["assistant.json"])
+    document["knowledge"] = knowledge
+    files["assistant.json"] = json.dumps(document).encode("utf-8")
+    return files
+
+
+_SLOT = {"name": "policies", "description": "Your policies.", "accepts": ["md"]}
+
+
+@pytest.mark.parametrize(
+    ("knowledge", "sentence"),
+    [
+        ({"policies": {}}, "knowledge should be a list"),
+        (["policies"], "should be an object with a name"),
+        ([{**_SLOT, "name": "Refund Policy"}], "lowercase letters, digits and underscores"),
+        ([_SLOT, _SLOT], "policies is asked for twice"),
+        ([{**_SLOT, "description": " "}], "policies has no description"),
+        ([{**_SLOT, "accepts": []}], "accepts should list file extensions"),
+        ([{**_SLOT, "accepts": [".pdf"]}], "accepts should list file extensions"),
+        ([{**_SLOT, "required": "yes"}], "required should be true or false"),
+        ([{**_SLOT, "name": f"slot_{i}"} for i in range(21)], "Bailey takes 20 at most"),
+    ],
+    ids=[
+        "not-a-list",
+        "not-an-object",
+        "bad-name",
+        "twice",
+        "no-description",
+        "no-types",
+        "dotted-type",
+        "required",
+        "too-many",
+    ],
+)
+def test_a_knowledge_slot_bailey_cannot_ask_for_is_refused_with_a_sentence(knowledge: object, sentence: str) -> None:
+    with pytest.raises(SolutionRefused, match=sentence):
+        read_solution(_with_knowledge(knowledge))
+
+
+def test_a_sample_over_the_bound_is_refused() -> None:
+    files = _fixture_files()
+    files["samples/policies.md"] = b"x" * (256 * 1024 + 1)
+    with pytest.raises(SolutionRefused, match="a sample can be 256 KB at most"):
         read_solution(files)

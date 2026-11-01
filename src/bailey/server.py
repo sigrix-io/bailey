@@ -56,7 +56,8 @@ from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from bailey import __version__
-from bailey.conversations import notice_record, pending, shown, to_history, to_records, user_record
+from bailey.conversations import notice_record, pending, shown, shown_text, to_history, to_records, user_record
+from bailey.core import load as load_core
 from bailey.keys import (
     FILE_NAME,
     EncryptedFileKeys,
@@ -66,6 +67,27 @@ from bailey.keys import (
     UnreadableKeyFile,
     WrongPassphrase,
     open_keys,
+)
+from bailey.knowledge import (
+    ACCEPTED_TYPES,
+    LOCAL_WHOLE_LIMIT,
+    MAX_DOCUMENT_BYTES,
+    MINILM,
+    WHOLE_LIMIT,
+    WHOLE_PROVIDERS,
+    DocumentRefused,
+    Documents,
+    Embedder,
+    LocalEmbedder,
+    add_document,
+    cited,
+    extension_of,
+    mode,
+    search,
+    whole_text,
+)
+from bailey.knowledge import (
+    index as index_collection,
 )
 from bailey.paths import data_folder, ensure_data_folder
 from bailey.settings import (
@@ -166,6 +188,8 @@ class AppState:
     running: set[str] = field(default_factory=set)
     #: Each assistant's MCP servers, started at the first message that needs them and kept running.
     tools: ToolHost = field(default_factory=ToolHost)
+    #: The search model; made from the data folder on first use, and handed in by the tests.
+    embedder: Embedder | None = None
 
 
 class Refusal(Exception):
@@ -256,7 +280,7 @@ def _answers(handler: Callable[[Request], Awaitable[Response]]) -> Callable[[Req
             return await handler(request)
         except Refusal as refusal:
             return _error(refusal.status, refusal.message)
-        except (SettingRefused, SolutionRefused) as refusal:
+        except (SettingRefused, SolutionRefused, DocumentRefused) as refusal:
             return _error(400, str(refusal))
         except KeysLocked:
             return _error(423, "Unlock your keys with their passphrase first.")
@@ -410,6 +434,108 @@ def _tool_environments(state: AppState, assistant_id: str, made: Assistant) -> d
     return environments
 
 
+def _embedder(state: AppState) -> Embedder:
+    """The search model: in the data folder once fetched, or in the folder ``BAILEY_SEARCH_MODEL`` names."""
+
+    if state.embedder is None:
+        named = os.environ.get("BAILEY_SEARCH_MODEL")
+        state.embedder = LocalEmbedder(state.data_folder / "models", folder=Path(named) if named else None)
+    return state.embedder
+
+
+def _sent_whole_limit(provider: str) -> int:
+    return WHOLE_LIMIT if provider in WHOLE_PROVIDERS else LOCAL_WHOLE_LIMIT
+
+
+def _collection(state: AppState, assistant_id: str, provider: str) -> tuple[list[dict[str, Any]], int, str]:
+    """The assistant's documents, the tokens of those sent whole, and how they reach the model.
+
+    The seller's reference files are kept for search alone: whole, they would be sent a
+    second time, beside their skill.
+    """
+
+    documents = state.store.documents(assistant_id)
+    tokens = sum(int(document["tokens"]) for document in documents if document["kind"] != "reference")
+    return documents, tokens, mode(tokens, provider) if tokens else "none"
+
+
+def _download_first(made: Assistant, provider: str) -> str:
+    why = "too long to send whole" if provider in WHOLE_PROVIDERS else "searched, as on any local server"
+    return (
+        f"{made.title}'s documents are {why}, so Bailey searches them with a model it downloads once from Hugging "
+        f"Face: {MINILM.label}, about {MINILM.download_mb} MB. Download it under Assistants, in {made.title}'s "
+        "Documents."
+    )
+
+
+def _documents_for(state: AppState, assistant_id: str, made: Assistant, provider: str) -> Documents | None:
+    """How the assistant's documents reach the model in this run, or a refusal saying what to fetch first."""
+
+    _, _, way = _collection(state, assistant_id, provider)
+    if way == "whole":
+        passages = [passage for passage in state.store.passages(assistant_id) if passage["kind"] != "reference"]
+        return Documents("whole", text=whole_text(passages), grounded_only=made.grounded_only)
+    if way == "search":
+        embedder = _embedder(state)
+        if not embedder.ready():
+            raise Refusal(409, _download_first(made, provider))
+        index_collection(state.store, assistant_id, embedder)
+        return Documents(
+            "search",
+            search=lambda query: search(state.store, assistant_id, query, embedder),
+            grounded_only=made.grounded_only,
+        )
+    return None
+
+
+def _citations(state: AppState, assistant_id: str, records: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The passages an answer cites, ``[P12]``, each as its document, heading, page and text.
+
+    A number that is not one of this assistant's passages is left out.
+    """
+
+    ids = cited("\n".join(shown_text(record) for record in records if record["role"] == "assistant"))
+    found = {passage["id"]: passage for passage in state.store.passages(assistant_id, ids)}
+    return [
+        {
+            "id": passage_id,
+            "document": found[passage_id]["document"],
+            "heading": found[passage_id]["heading"],
+            "page": found[passage_id]["page"],
+            "text": found[passage_id]["body"],
+        }
+        for passage_id in ids
+        if passage_id in found
+    ]
+
+
+def _knowledge_view(state: AppState, assistant_id: str, made: Assistant) -> dict[str, Any]:
+    """The assistant's Documents panel: its slots, its other documents, and how they reach the model."""
+
+    provider = str(state.store.get_setting("provider") or "")
+    documents, tokens, way = _collection(state, assistant_id, provider)
+    by_slot = {document["slot"]: document for document in documents if document["slot"]}
+    return {
+        "id": assistant_id,
+        "slots": [
+            {**slot.as_dict(), "sample": made.sample(slot.name) is not None, "document": by_slot.get(slot.name)}
+            for slot in made.knowledge
+        ],
+        "documents": [document for document in documents if not document["slot"]],
+        "tokens": tokens,
+        "limit": _sent_whole_limit(provider),
+        "mode": way,
+        "accepts": sorted(ACCEPTED_TYPES),
+        "grounded_only": made.grounded_only,
+        "model": {
+            "label": MINILM.label,
+            "size_mb": MINILM.download_mb,
+            "source": "Hugging Face",
+            "ready": _embedder(state).ready() if way == "search" or state.embedder is not None else False,
+        },
+    }
+
+
 def _granted(state: AppState, assistant_id: str) -> set[tuple[str, str]]:
     return {(grant["server"], grant["tool"]) for grant in state.store.grants(assistant_id)}
 
@@ -425,13 +551,17 @@ def _records(
     return _without_the_prompt(records, text) if text is not None else records
 
 
-def _with_usage(records: list[dict[str, Any]], usage: dict[str, Any], estimate: Any) -> list[dict[str, Any]]:
-    """The run's usage on its last answer, where the page reads it."""
+def _with_usage(
+    records: list[dict[str, Any]], usage: dict[str, Any], estimate: Any, citations: list[dict[str, Any]] | None = None
+) -> list[dict[str, Any]]:
+    """The run's usage, and the passages its answer cites, on its last answer, where the page reads them."""
 
     for record in reversed(records):
         if record["role"] == "assistant":
             record["usage"] = usage
             record["estimate"] = estimate
+            if citations:
+                record["citations"] = citations
             break
     return records
 
@@ -638,7 +768,24 @@ def build_app(state: AppState) -> ASGIApp:
             # A solution with tool servers runs programs on this computer, and the person
             # is told so as it arrives (design §4).
             notice = SANDBOX_NOTICE if any(not server.remote for server in made.servers) else ""
-            return {"id": assistant_id, "notice": notice, **_assistants_view(state)}
+            # The seller's reference files are kept for search too (design §3.7), so a large
+            # one is found without its skill loaded. One Bailey cannot read stays with its skill.
+            for skill in (made.instructions, *made.skills):
+                for name, text in skill.references:
+                    with contextlib.suppress(DocumentRefused):
+                        add_document(
+                            state.store,
+                            assistant_id,
+                            f"{skill.name}/references/{name}",
+                            text.encode("utf-8"),
+                            kind="reference",
+                        )
+            return {
+                "id": assistant_id,
+                "notice": notice,
+                "asks_for_documents": bool(made.knowledge),
+                **_assistants_view(state),
+            }
 
         return JSONResponse(await run_in_threadpool(save))
 
@@ -763,6 +910,105 @@ def build_app(state: AppState) -> ASGIApp:
 
         return JSONResponse(await run_in_threadpool(revoke))
 
+    # -- documents ---------------------------------------------------------------
+
+    def _indexed(assistant_id: str) -> None:
+        # A document is embedded as it arrives once the model is here, so a message later
+        # waits for none of it; without the model it waits until the collection needs it.
+        if state.embedder is not None or os.environ.get("BAILEY_SEARCH_MODEL"):
+            embedder = _embedder(state)
+            if embedder.ready():
+                index_collection(state.store, assistant_id, embedder)
+
+    @_answers
+    async def read_knowledge(request: Request) -> Response:
+        assistant_id = request.path_params["assistant_id"]
+
+        def read() -> dict[str, Any]:
+            return _knowledge_view(state, assistant_id, _assistant(state, assistant_id))
+
+        return JSONResponse(await run_in_threadpool(read))
+
+    @_answers
+    async def add_knowledge(request: Request) -> Response:
+        assistant_id = request.path_params["assistant_id"]
+        name = request.query_params.get("name", "").strip()
+        slot_name = request.query_params.get("slot", "").strip()
+        if not name:
+            raise Refusal(400, "Name the document's file.")
+        data = await _read_body(request, MAX_DOCUMENT_BYTES)
+
+        def add() -> dict[str, Any]:
+            made = _assistant(state, assistant_id)
+            if slot_name:
+                slot = made.slot(slot_name)
+                if slot is None:
+                    raise Refusal(404, f"{made.title} asks for no document named {slot_name}.")
+                if extension_of(name) not in slot.accepts:
+                    raise Refusal(400, f"{slot.description} Bailey takes it as {', '.join(slot.accepts)}.")
+            add_document(state.store, assistant_id, name, data, slot=slot_name, kind="slot" if slot_name else "own")
+            _indexed(assistant_id)
+            return _knowledge_view(state, assistant_id, made)
+
+        return JSONResponse(await run_in_threadpool(add))
+
+    @_answers
+    async def use_sample(request: Request) -> Response:
+        assistant_id = request.path_params["assistant_id"]
+        slot_name = request.path_params["slot"]
+
+        def use() -> dict[str, Any]:
+            made = _assistant(state, assistant_id)
+            sample = made.sample(slot_name)
+            if sample is None:
+                raise Refusal(404, f"{made.title} has no sample for {slot_name}.")
+            add_document(
+                state.store,
+                assistant_id,
+                f"{sample.slot}.{sample.extension}",
+                sample.text.encode("utf-8"),
+                slot=sample.slot,
+                kind="sample",
+            )
+            _indexed(assistant_id)
+            return _knowledge_view(state, assistant_id, made)
+
+        return JSONResponse(await run_in_threadpool(use))
+
+    @_answers
+    async def remove_knowledge(request: Request) -> Response:
+        assistant_id = request.path_params["assistant_id"]
+        document_id = request.path_params["document_id"]
+
+        def remove() -> dict[str, Any]:
+            made = _assistant(state, assistant_id)
+            if not state.store.delete_document(assistant_id, document_id):
+                raise Refusal(404, "This assistant has no document by that id.")
+            return _knowledge_view(state, assistant_id, made)
+
+        return JSONResponse(await run_in_threadpool(remove))
+
+    @_answers
+    async def fetch_model(request: Request) -> Response:
+        """Fetch the search model from Hugging Face, once: the page asks the person before it calls this."""
+
+        embedder = _embedder(state)
+
+        def fetch() -> dict[str, Any]:
+            if not embedder.ready():
+                try:
+                    embedder.download()  # type: ignore[attr-defined]
+                except Exception as error:  # the network, a proxy, a full disk: each a sentence
+                    raise Refusal(
+                        502,
+                        f"Bailey could not download {MINILM.label} from Hugging Face: {type(error).__name__}. "
+                        "Check this computer's connection to huggingface.co, or put the model in a folder and point "
+                        "BAILEY_SEARCH_MODEL at it.",
+                    ) from error
+            return {"ready": embedder.ready(), "label": MINILM.label}
+
+        return JSONResponse(await run_in_threadpool(fetch))
+
     # -- conversations -----------------------------------------------------------
 
     @_answers
@@ -835,6 +1081,7 @@ def build_app(state: AppState) -> ASGIApp:
         *,
         text: str | None = None,
         decisions: dict[str, bool] | None = None,
+        documents: Documents | None = None,
     ) -> StreamingResponse:
         """One run of the agent as server-sent events, its records stored as it ends.
 
@@ -848,7 +1095,9 @@ def build_app(state: AppState) -> ASGIApp:
 
         async def stream() -> AsyncIterator[bytes]:
             # Imported here: the agent core takes seconds to load, which a start of the app
-            # should not wait for. serve() loads it in the background once the server is up.
+            # should not wait for. serve() loads it in the background once the server is up,
+            # and the request's own preparation has loaded it by now (to_history).
+            load_core()
             from bailey.agent import answer
 
             try:
@@ -865,14 +1114,19 @@ def build_app(state: AppState) -> ASGIApp:
                         yield _event({"type": "error", "message": str(failure)})
                         return
                 async for event in answer(
-                    connection, made, history, text, toolsets=toolsets, granted=granted, decisions=decisions
+                    connection,
+                    made,
+                    history,
+                    text,
+                    toolsets=toolsets,
+                    granted=granted,
+                    decisions=decisions,
+                    documents=documents,
                 ):
                     if event["type"] == "done":
-                        records = _with_usage(
-                            _records(event["messages"], connection, event["servers"], event["asked"], text),
-                            event["usage"],
-                            event["estimate"],
-                        )
+                        records = _records(event["messages"], connection, event["servers"], event["asked"], text)
+                        citations = await run_in_threadpool(_citations, state, assistant_id, records)
+                        records = _with_usage(records, event["usage"], event["estimate"], citations)
                         await run_in_threadpool(state.store.append_messages, conversation_id, records)
                         yield _event(
                             {
@@ -881,6 +1135,7 @@ def build_app(state: AppState) -> ASGIApp:
                                 "estimate": event["estimate"],
                                 "model": connection.model,
                                 "paused": bool(event["asked"]),
+                                "citations": citations,
                             }
                         )
                     elif event["type"] == "error":
@@ -911,7 +1166,7 @@ def build_app(state: AppState) -> ASGIApp:
             )
         text = text.strip()
 
-        def prepare() -> tuple[str, Assistant, Connection, list[Any], dict[str, dict[str, str]]]:
+        def prepare() -> tuple[str, Assistant, Connection, list[Any], dict[str, dict[str, str]], Documents | None]:
             found = _conversation(conversation_id)
             assistant_id = found["assistant_id"]
             made = _assistant(state, assistant_id)
@@ -922,15 +1177,18 @@ def build_app(state: AppState) -> ASGIApp:
             if pending(stored):
                 raise Refusal(409, "Answer the question above first: allow the tool call, or decline it.")
             environments = _tool_environments(state, assistant_id, made)
+            documents = _documents_for(state, assistant_id, made, connection.provider)
             history = to_history(stored)
             state.store.append_messages(conversation_id, [user_record(text)])
             if not stored:
                 state.store.rename_conversation(conversation_id, _title_for(text))
             state.running.add(conversation_id)
-            return assistant_id, made, connection, history, environments
+            return assistant_id, made, connection, history, environments, documents
 
-        assistant_id, made, connection, history, environments = await run_in_threadpool(prepare)
-        return _stream(conversation_id, assistant_id, made, connection, history, environments, text=text)
+        assistant_id, made, connection, history, environments, documents = await run_in_threadpool(prepare)
+        return _stream(
+            conversation_id, assistant_id, made, connection, history, environments, text=text, documents=documents
+        )
 
     @_answers
     async def answer_questions(request: Request) -> Response:
@@ -943,7 +1201,9 @@ def build_app(state: AppState) -> ASGIApp:
         ):
             raise Refusal(400, "Answer each question with once, always or no.")
 
-        def prepare() -> tuple[str, Assistant, Connection, list[Any], dict[str, dict[str, str]], dict[str, bool]]:
+        def prepare() -> tuple[
+            str, Assistant, Connection, list[Any], dict[str, dict[str, str]], dict[str, bool], Documents | None
+        ]:
             found = _conversation(conversation_id)
             assistant_id = found["assistant_id"]
             made = _assistant(state, assistant_id)
@@ -957,15 +1217,25 @@ def build_app(state: AppState) -> ASGIApp:
             if set(answers) != {call["id"] for call in waiting}:
                 raise Refusal(400, "Answer every question this conversation is waiting on, and only those.")
             environments = _tool_environments(state, assistant_id, made)
+            documents = _documents_for(state, assistant_id, made, connection.provider)
             for call in waiting:
                 if answers[call["id"]] == "always" and call["server"]:
                     state.store.grant(assistant_id, call["server"], call["tool"])
             state.running.add(conversation_id)
             decisions = {call_id: given != "no" for call_id, given in answers.items()}
-            return assistant_id, made, connection, to_history(stored), environments, decisions
+            return assistant_id, made, connection, to_history(stored), environments, decisions, documents
 
-        assistant_id, made, connection, history, environments, decisions = await run_in_threadpool(prepare)
-        return _stream(conversation_id, assistant_id, made, connection, history, environments, decisions=decisions)
+        assistant_id, made, connection, history, environments, decisions, documents = await run_in_threadpool(prepare)
+        return _stream(
+            conversation_id,
+            assistant_id,
+            made,
+            connection,
+            history,
+            environments,
+            decisions=decisions,
+            documents=documents,
+        )
 
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
@@ -1003,6 +1273,11 @@ def build_app(state: AppState) -> ASGIApp:
                 remove_variable,
                 methods=["DELETE"],
             ),
+            Route("/api/assistants/{assistant_id}/knowledge", read_knowledge, methods=["GET"]),
+            Route("/api/assistants/{assistant_id}/knowledge", add_knowledge, methods=["POST"]),
+            Route("/api/assistants/{assistant_id}/knowledge/samples/{slot}", use_sample, methods=["POST"]),
+            Route("/api/assistants/{assistant_id}/knowledge/{document_id}", remove_knowledge, methods=["DELETE"]),
+            Route("/api/knowledge/model", fetch_model, methods=["POST"]),
             Route("/api/grants", list_grants, methods=["GET"]),
             Route("/api/grants/revoke", revoke_grant, methods=["POST"]),
             Route("/api/conversations", list_conversations, methods=["GET"]),
@@ -1044,12 +1319,10 @@ def _warm_up() -> None:
     """Load the agent core and the tool host's libraries in the background, so the first
     message does not wait seconds for them (about two, and one more for the MCP ones)."""
 
-    # A failure here surfaces, with its sentence, when a message needs the core.
+    # A failure here surfaces, with its sentence, when a message needs the core. A message
+    # that comes first imports through the same door rather than beside it (bailey.core).
     with contextlib.suppress(Exception):
-        import fastmcp.client.transports  # noqa: F401
-        import pydantic_ai.mcp  # noqa: F401
-
-        import bailey.agent  # noqa: F401
+        load_core()
 
 
 def _open_when_ready(server: uvicorn.Server, launch: str, out: TextIO) -> None:

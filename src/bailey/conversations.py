@@ -33,11 +33,14 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
+from bailey.core import load
+
 if TYPE_CHECKING:
     from pydantic_ai.messages import ModelMessage
 
 # The agent core's types are imported where they are converted, not here: the server
 # reads and shows conversations without loading the agent core, which takes seconds.
+# They are imported through bailey.core.load, which keeps a first import to one thread.
 
 FORMAT = "bailey-message/1"
 
@@ -82,6 +85,7 @@ def to_records(
     working, which nothing later in a conversation needs, and its signed form is a
     provider's."""
 
+    load()
     from pydantic_ai.messages import (
         ModelRequest,
         ModelResponse,
@@ -159,6 +163,7 @@ def to_history(records: Sequence[dict[str, Any]]) -> list[ModelMessage]:
     this Bailey does not know is refused rather than half read.
     """
 
+    load()
     from pydantic_ai.messages import (
         ModelRequest,
         ModelRequestPart,
@@ -265,8 +270,8 @@ def shown(records: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
 
     A message the person sent is one entry. Everything the model sent back for it, its
     tool calls and the text after them, is one ``assistant`` entry, naming the skills it
-    loaded, each server tool it called and how that call ended, and carrying the run's
-    usage. A notice is its own entry. A record of a tool's result went to the model and
+    loaded, each server tool it called and how that call ended, what it searched the
+    documents for and the passages its answer cites, and carrying the run's usage. A notice is its own entry. A record of a tool's result went to the model and
     is not drawn; its outcome is drawn on the call.
     """
 
@@ -299,6 +304,8 @@ def shown(records: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
                 "text": "",
                 "skills": [],
                 "tools": [],
+                "searches": [],
+                "citations": [],
                 "usage": None,
                 "estimate": None,
                 "model": "",
@@ -314,6 +321,9 @@ def shown(records: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
                 if name and name not in current["skills"]:
                     current["skills"].append(name)
                 continue
+            if part.get("tool") == "search_knowledge":
+                current["searches"].append(str((part.get("args") or {}).get("query", "")))
+                continue
             call_id = str(part.get("id"))
             current["tools"].append(
                 {
@@ -324,6 +334,9 @@ def shown(records: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
                     "outcome": outcomes.get(call_id, "waiting" if part.get("asked") else ""),
                 }
             )
+        for citation in record.get("citations") or []:
+            if citation not in current["citations"]:
+                current["citations"].append(citation)
         if record.get("usage"):
             # A run that stopped to ask and the run its answer resumed make one entry, whose
             # usage is both runs'.

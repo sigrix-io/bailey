@@ -1,0 +1,26 @@
+{
+  "format_version": "0.1",
+  "name": "shop-replies",
+  "title": "Shop replies",
+  "description": "Drafts replies to a small bookshop's customer email, from the shop's own documents.",
+  "instructions": "skills/shop-replies/SKILL.md",
+  "starters": ["Can I return a book I did not like?"],
+  "knowledge": [
+    {
+      "name": "policies",
+      "description": "Your shipping, returns and refund policies, as you show them to customers.",
+      "accepts": ["md", "txt", "pdf"],
+      "required": true
+    },
+    {
+      "name": "faq",
+      "description": "The questions customers ask most, with your answers.",
+      "accepts": ["md", "txt"]
+    },
+    {
+      "name": "catalog",
+      "description": "Your books, one row each: title, price and whether it is in stock.",
+      "accepts": ["csv"]
+    }
+  ]
+}

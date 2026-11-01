@@ -9,8 +9,11 @@ A solution is a folder, or a zip of one::
     skills/<name>/references/<file>  a skill's small text files, loaded with it
     persona.md                       the voice, when the writer keeps it apart from the instructions
     mcp.json                         its MCP servers: how each starts, and the names of its variables
+    samples/<slot>.<ext>             a made-up example of each document the solution asks for
 
-``assistant.json``'s ``tools`` says, for each server, which tools the writer declared
+``assistant.json``'s ``knowledge`` names the documents the solution asks the person for,
+its knowledge slots, which they give on their own machine; a slot's sample stands in
+until they do. Its ``tools`` says, for each server, which tools the writer declared
 and which of those write. Bailey asks before a write, and treats as a write any tool a
 server lists that its declaration does not, and every tool of a server with none.
 
@@ -56,10 +59,17 @@ MAX_SERVERS = 20
 MAX_ARGS = 100
 MAX_ARG_CHARACTERS = 4096
 MAX_VARIABLES = 50
+MAX_SLOTS = 20
+#: A sample is text (Sigrix takes md, txt, csv or json), and the store bounds it at 256 KiB.
+MAX_SAMPLE_BYTES = 256 * 1024
+SAMPLES_FOLDER = "samples"
 
 #: A server's name in ``mcp.json``, and a variable's name in its ``env``.
 SERVER_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$")
 VARIABLE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+#: A knowledge slot's name, and an extension it accepts (schemas/0.1, knowledge_slot).
+SLOT_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+EXTENSION = re.compile(r"^[a-z0-9]{1,16}$")
 
 #: The fixed time written into every zip entry, so one assistant always exports to the same bytes.
 _ZIP_TIME = (2026, 1, 1, 0, 0, 0)
@@ -159,6 +169,53 @@ class Server:
 
 
 @dataclass(frozen=True)
+class KnowledgeSlot:
+    """A document the solution asks the person for: its name, what to give, the file types it takes."""
+
+    name: str
+    description: str
+    accepts: tuple[str, ...]
+    required: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "accepts": list(self.accepts),
+            "required": self.required,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> KnowledgeSlot:
+        return cls(
+            name=str(data["name"]),
+            description=str(data.get("description") or ""),
+            accepts=tuple(str(item) for item in data.get("accepts") or ()),
+            required=bool(data.get("required")),
+        )
+
+
+@dataclass(frozen=True)
+class Sample:
+    """A slot's sample: a made-up document of the kind the slot asks for, carried as text."""
+
+    slot: str
+    extension: str
+    text: str
+
+    @property
+    def path(self) -> str:
+        return f"{SAMPLES_FOLDER}/{self.slot}.{self.extension}"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"slot": self.slot, "extension": self.extension, "text": self.text}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Sample:
+        return cls(slot=str(data["slot"]), extension=str(data["extension"]), text=str(data.get("text") or ""))
+
+
+@dataclass(frozen=True)
 class Assistant:
     name: str
     title: str
@@ -169,12 +226,23 @@ class Assistant:
     starters: tuple[str, ...] = ()
     skills: tuple[Skill, ...] = field(default_factory=tuple)
     servers: tuple[Server, ...] = field(default_factory=tuple)
+    knowledge: tuple[KnowledgeSlot, ...] = field(default_factory=tuple)
+    samples: tuple[Sample, ...] = field(default_factory=tuple)
+    #: Bailey's own setting, not the solution's: answer only from the documents, and say
+    #: so rather than answer from what the model knows when they do not cover a question.
+    grounded_only: bool = False
 
     def skill(self, name: str) -> Skill | None:
         return next((skill for skill in self.skills if skill.name == name), None)
 
     def server(self, name: str) -> Server | None:
         return next((server for server in self.servers if server.name == name), None)
+
+    def slot(self, name: str) -> KnowledgeSlot | None:
+        return next((slot for slot in self.knowledge if slot.name == name), None)
+
+    def sample(self, slot: str) -> Sample | None:
+        return next((sample for sample in self.samples if sample.slot == slot), None)
 
     def as_dict(self) -> dict[str, Any]:
         """Bailey's own record of an assistant, as the local store keeps it."""
@@ -189,6 +257,9 @@ class Assistant:
             "starters": list(self.starters),
             "skills": [skill.as_dict() for skill in self.skills],
             "servers": [server.as_dict() for server in self.servers],
+            "knowledge": [slot.as_dict() for slot in self.knowledge],
+            "samples": [sample.as_dict() for sample in self.samples],
+            "grounded_only": self.grounded_only,
         }
 
     @classmethod
@@ -204,6 +275,9 @@ class Assistant:
             starters=tuple(str(starter) for starter in data.get("starters") or ()),
             skills=tuple(Skill.from_dict(skill) for skill in data.get("skills") or ()),
             servers=tuple(Server.from_dict(server) for server in data.get("servers") or ()),
+            knowledge=tuple(KnowledgeSlot.from_dict(slot) for slot in data.get("knowledge") or ()),
+            samples=tuple(Sample.from_dict(sample) for sample in data.get("samples") or ()),
+            grounded_only=bool(data.get("grounded_only")),
         )
 
 
@@ -268,9 +342,45 @@ def parse_skill(text: str, where: str) -> tuple[dict[str, str], str]:
             joined = "\n".join(block) if rest[0] == "|" else " ".join(part for part in block if part)
             values[key] = joined.strip()
         elif rest:
-            values[key] = _scalar(rest, f"{where}, {key}")
+            # A value may go on over indented lines, as a writer wraps a long description;
+            # YAML folds them into one line, quoted or not.
+            more, index = _continued(lines, index)
+            values[key] = _scalar(_folded(rest, more), f"{where}, {key}")
         # An empty value opens a nested one, whose indented lines the loop skips.
     return values, body
+
+
+def _continued(lines: list[str], index: int) -> tuple[list[str], int]:
+    """The indented lines carrying on the value of the key before them, and the index after them.
+
+    A blank line followed by another indented one is a line break within the value.
+    """
+
+    taken: list[str] = []
+    while index < len(lines):
+        line = lines[index]
+        if line[:1] in (" ", "\t") and line.strip():
+            taken.append(line.strip())
+        elif not line.strip() and index + 1 < len(lines) and lines[index + 1][:1] in (" ", "\t"):
+            taken.append("")
+        else:
+            break
+        index += 1
+    return taken, index
+
+
+def _folded(first: str, more: list[str]) -> str:
+    """A flow scalar's lines as YAML reads them: each break a space, each blank line a break."""
+
+    folded = first.rstrip()
+    for part in more:
+        if not part:
+            folded += "\n"
+        elif folded.endswith("\n"):
+            folded += part
+        else:
+            folded += " " + part
+    return folded
 
 
 def render_skill(skill: Skill) -> str:
@@ -418,6 +528,71 @@ def _read_servers(files: Mapping[str, bytes], document: Mapping[str, Any], docum
     return tuple(servers)
 
 
+def _read_knowledge(
+    files: Mapping[str, bytes], document: Mapping[str, Any], document_path: str
+) -> tuple[tuple[KnowledgeSlot, ...], tuple[Sample, ...]]:
+    """The knowledge slots ``assistant.json`` declares, and each slot's text sample the package carries."""
+
+    declared = document.get("knowledge")
+    if declared is None:
+        return (), ()
+    if not isinstance(declared, list):
+        raise SolutionRefused(f"{document_path}'s knowledge should be a list of the documents it asks for.")
+    if len(declared) > MAX_SLOTS:
+        raise SolutionRefused(f"{document_path} asks for {len(declared)} documents; Bailey takes {MAX_SLOTS} at most.")
+    slots: list[KnowledgeSlot] = []
+    samples: list[Sample] = []
+    for index, entry in enumerate(declared, start=1):
+        where = f"{document_path}, knowledge {index}"
+        if not isinstance(entry, dict):
+            raise SolutionRefused(f"{where} should be an object with a name, a description and the types it accepts.")
+        name = entry.get("name")
+        if not isinstance(name, str) or not SLOT_NAME.fullmatch(name):
+            raise SolutionRefused(
+                f"{where}: a document's name is lowercase letters, digits and underscores, starting with a letter."
+            )
+        if any(slot.name == name for slot in slots):
+            raise SolutionRefused(f"{where}: {name} is asked for twice.")
+        description = entry.get("description")
+        if not isinstance(description, str) or not description.strip():
+            raise SolutionRefused(f"{where}: {name} has no description, which tells the person what to give.")
+        accepts = entry.get("accepts")
+        if (
+            not isinstance(accepts, list)
+            or not accepts
+            or not all(isinstance(item, str) and EXTENSION.fullmatch(item) for item in accepts)
+        ):
+            raise SolutionRefused(f"{where}: {name}'s accepts should list file extensions, such as pdf or csv.")
+        required = entry.get("required", False)
+        if not isinstance(required, bool):
+            raise SolutionRefused(f"{where}: {name}'s required should be true or false.")
+        slot = KnowledgeSlot(name, description.strip(), tuple(dict.fromkeys(accepts)), required)
+        slots.append(slot)
+        sample = _read_sample(files, slot)
+        if sample is not None:
+            samples.append(sample)
+    return tuple(slots), tuple(samples)
+
+
+def _read_sample(files: Mapping[str, bytes], slot: KnowledgeSlot) -> Sample | None:
+    """The slot's sample, ``samples/<slot>.<ext>`` in one of the types it accepts, if the package has a text one."""
+
+    for extension in slot.accepts:
+        path = f"{SAMPLES_FOLDER}/{slot.name}.{extension}"
+        if path not in files:
+            continue
+        data = files[path]
+        if len(data) > MAX_SAMPLE_BYTES:
+            raise SolutionRefused(
+                f"{path} is {len(data) // 1024} KB; a sample can be {MAX_SAMPLE_BYTES // 1024} KB at most."
+            )
+        try:
+            return Sample(slot.name, extension, data.decode("utf-8"))
+        except UnicodeDecodeError:
+            continue  # a sample Bailey cannot read as text is left for the person's own document
+    return None
+
+
 def read_solution(files: Mapping[str, bytes]) -> Assistant:
     """The assistant a solution's files describe, or :class:`SolutionRefused` saying why not."""
 
@@ -476,6 +651,7 @@ def read_solution(files: Mapping[str, bytes]) -> Assistant:
         if skill.name == instructions.name or any(other.name == skill.name for other in skills):
             raise SolutionRefused(f"{where}: {skill.name} is listed twice.")
         skills.append(skill)
+    knowledge, samples = _read_knowledge(files, document, document_path)
     return Assistant(
         name=name,
         title=title.strip(),
@@ -485,6 +661,8 @@ def read_solution(files: Mapping[str, bytes]) -> Assistant:
         starters=tuple(item.strip() for item in starters),
         skills=tuple(skills),
         servers=_read_servers(files, document, document_path),
+        knowledge=knowledge,
+        samples=samples,
     )
 
 
@@ -625,7 +803,17 @@ def assistant_from_form(form: Mapping[str, Any], previous: Assistant) -> Assista
         starters=tuple(starters),
         skills=tuple(skills),
         servers=previous.servers,
+        knowledge=previous.knowledge,
+        samples=previous.samples,
+        grounded_only=_flag(form, "grounded_only", previous.grounded_only),
     )
+
+
+def _flag(form: Mapping[str, Any], key: str, default: bool) -> bool:
+    value = form.get(key, default)
+    if not isinstance(value, bool):
+        raise SolutionRefused(f"{key} should be true or false.")
+    return value
 
 
 def form_of(assistant: Assistant) -> dict[str, Any]:
@@ -637,6 +825,7 @@ def form_of(assistant: Assistant) -> dict[str, Any]:
         "instructions": assistant.instructions.body,
         "persona": assistant.persona,
         "starters": list(assistant.starters),
+        "grounded_only": assistant.grounded_only,
         "skills": [
             {
                 "name": skill.name,
@@ -689,6 +878,13 @@ def solution_files(assistant: Assistant) -> dict[str, bytes]:
         document["starters"] = list(assistant.starters)
     if assistant.skills:
         document["skills"] = [{"name": skill.name, "path": put_skill(skill)} for skill in assistant.skills]
+    if assistant.knowledge:
+        document["knowledge"] = [
+            {key: value for key, value in slot.as_dict().items() if key != "required" or value}
+            for slot in assistant.knowledge
+        ]
+        for sample in assistant.samples:
+            files[sample.path] = sample.text.encode("utf-8")
     if assistant.servers:
         entries: dict[str, Any] = {}
         declarations: dict[str, Any] = {}

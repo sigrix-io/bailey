@@ -117,6 +117,8 @@ def test_the_page_sees_one_entry_per_turn_with_the_skills_it_loaded_and_its_usag
             "text": "Rain is due at noon.",
             "skills": ["summarise"],
             "tools": [],
+            "searches": [],
+            "citations": [],
             "usage": {"input_tokens": 1200, "output_tokens": 20},
             "estimate": {"usd": "0.003800"},
             "model": "claude-sonnet-5-5",

@@ -104,6 +104,11 @@
             <label for="assistant-starters">Starters, one per line</label>
             <textarea id="assistant-starters" rows="3"></textarea>
           </div>
+          <div class="field checkbox-field">
+            <input id="assistant-grounded" type="checkbox">
+            <label for="assistant-grounded">Answer only from its documents</label>
+            <p class="hint">When its documents do not cover a question, it says so and goes no further.</p>
+          </div>
           <fieldset>
             <legend>Skills</legend>
             <p class="hint">The model sees each skill's name and description, and loads its instructions only when a request needs it.</p>
@@ -116,6 +121,24 @@
           </div>
           <p class="status" id="assistant-form-status" role="status"></p>
         </form>
+
+        <section class="card" id="knowledge-card" hidden aria-labelledby="knowledge-title">
+          <h2 id="knowledge-title">Documents</h2>
+          <p class="hint" id="knowledge-mode"></p>
+          <p class="notice-card" id="knowledge-model" hidden>
+            <span id="knowledge-model-text"></span>
+            <button type="button" id="knowledge-download">Download the search model</button>
+          </p>
+          <div id="knowledge-slots"></div>
+          <h3 class="subhead">Other documents</h3>
+          <ul class="document-list" id="knowledge-documents"></ul>
+          <div class="actions">
+            <label class="file-button" for="knowledge-file">Add a document</label>
+            <input type="file" id="knowledge-file" class="sr-only">
+            <button type="button" class="quiet" id="close-knowledge">Close</button>
+          </div>
+          <p class="status" id="knowledge-status" role="status"></p>
+        </section>
 
         <section class="card" id="tools-card" hidden aria-labelledby="tools-title">
           <h2 id="tools-title">Tools</h2>

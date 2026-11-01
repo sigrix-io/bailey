@@ -99,30 +99,6 @@ def check_full_text_search(connect: Callable[[str], Any] | None = None) -> Check
     )
 
 
-def check_extension_loading(connection_type: type | None = None) -> Check:
-    """The vector index is a SQLite extension, and loading one is also a build option."""
-
-    name, needed_for = "SQLite extensions", "the vector index, which finds passages by meaning rather than by word"
-    if connection_type is None:
-        if sqlite3 is None:
-            return _without_sqlite(name, needed_for, required=False)
-        connection_type = sqlite3.Connection
-    ok = hasattr(connection_type, "enable_load_extension")
-    return Check(
-        name=name,
-        ok=ok,
-        found="can be loaded" if ok else "cannot be loaded",
-        needed_for=needed_for,
-        required=False,
-        fix=""
-        if ok
-        else (
-            "This Python was built without SQLite extension loading (the Python that ships with macOS is one). "
-            "Keyword search still works; for search by meaning, run Bailey on a Python that allows extensions."
-        ),
-    )
-
-
 def check_uv(which: Callable[[str], str | None] = shutil.which) -> Check:
     path = which("uvx") or which("uv")
     return Check(
@@ -225,7 +201,6 @@ def run_checks() -> list[Check]:
     return [
         check_python(),
         check_full_text_search(),
-        check_extension_loading(),
         check_uv(),
         check_node(),
         check_loopback(),

@@ -52,6 +52,21 @@ MIGRATIONS: tuple[tuple[str, ...], ...] = (
         "CREATE TABLE grants (assistant_id TEXT NOT NULL, server TEXT NOT NULL, tool TEXT NOT NULL, "
         "granted_at TEXT NOT NULL, PRIMARY KEY (assistant_id, server, tool))",
     ),
+    # 4 (S8): each assistant's documents, split into passages (bailey.knowledge). A passage
+    # keeps its heading, its page and its place in its section; its vector is stored with
+    # the name of the model that made it, so a different model re-indexes instead of mixing
+    # two. FTS5 searches the passages' text; no SQLite extension is loaded.
+    (
+        "CREATE TABLE documents (id TEXT PRIMARY KEY, assistant_id TEXT NOT NULL, slot TEXT NOT NULL, "
+        "name TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, tokens INTEGER NOT NULL, added_at TEXT NOT NULL)",
+        "CREATE INDEX documents_by_assistant ON documents (assistant_id, added_at)",
+        "CREATE TABLE passages (id INTEGER PRIMARY KEY, document_id TEXT NOT NULL, assistant_id TEXT NOT NULL, "
+        "heading TEXT NOT NULL, page INTEGER, seq INTEGER NOT NULL, body TEXT NOT NULL, text TEXT NOT NULL, "
+        "model TEXT NOT NULL DEFAULT '', vector BLOB)",
+        "CREATE INDEX passages_by_document ON passages (document_id)",
+        "CREATE INDEX passages_by_assistant ON passages (assistant_id)",
+        "CREATE VIRTUAL TABLE passages_fts USING fts5(text, tokenize='porter unicode61 remove_diacritics 2')",
+    ),
 )
 
 
@@ -150,7 +165,145 @@ class Store:
             )
             self._connection.execute("DELETE FROM conversations WHERE assistant_id = ?", (assistant_id,))
             self._connection.execute("DELETE FROM grants WHERE assistant_id = ?", (assistant_id,))
+            self._connection.execute(
+                "DELETE FROM passages_fts WHERE rowid IN (SELECT id FROM passages WHERE assistant_id = ?)",
+                (assistant_id,),
+            )
+            self._connection.execute("DELETE FROM passages WHERE assistant_id = ?", (assistant_id,))
+            self._connection.execute("DELETE FROM documents WHERE assistant_id = ?", (assistant_id,))
             self._connection.execute("DELETE FROM assistants WHERE id = ?", (assistant_id,))
+
+    # -- documents and their passages (bailey.knowledge) -------------------------
+
+    def add_document(self, document: dict[str, Any], passages: list[dict[str, Any]]) -> None:
+        """A document and its passages, in one transaction. One in the same slot is replaced."""
+
+        with self._lock, self._transaction():
+            if document["slot"]:
+                for (old,) in self._connection.execute(
+                    "SELECT id FROM documents WHERE assistant_id = ? AND slot = ?",
+                    (document["assistant_id"], document["slot"]),
+                ).fetchall():
+                    self._delete_document(old)
+            self._connection.execute(
+                "INSERT INTO documents (id, assistant_id, slot, name, kind, title, tokens, added_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    document["id"],
+                    document["assistant_id"],
+                    document["slot"],
+                    document["name"],
+                    document["kind"],
+                    document["title"],
+                    document["tokens"],
+                    _now(),
+                ),
+            )
+            for passage in passages:
+                cursor = self._connection.execute(
+                    "INSERT INTO passages (document_id, assistant_id, heading, page, seq, body, text) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        document["id"],
+                        document["assistant_id"],
+                        passage["heading"],
+                        passage["page"],
+                        passage["seq"],
+                        passage["body"],
+                        passage["text"],
+                    ),
+                )
+                self._connection.execute(
+                    "INSERT INTO passages_fts (rowid, text) VALUES (?, ?)", (cursor.lastrowid, passage["text"])
+                )
+
+    def _delete_document(self, document_id: str) -> None:
+        self._connection.execute(
+            "DELETE FROM passages_fts WHERE rowid IN (SELECT id FROM passages WHERE document_id = ?)", (document_id,)
+        )
+        self._connection.execute("DELETE FROM passages WHERE document_id = ?", (document_id,))
+        self._connection.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+
+    def delete_document(self, assistant_id: str, document_id: str) -> bool:
+        """The document and every passage of it. Whether the assistant had it."""
+
+        with self._lock, self._transaction():
+            found = self._connection.execute(
+                "SELECT 1 FROM documents WHERE id = ? AND assistant_id = ?", (document_id, assistant_id)
+            ).fetchone()
+            if found:
+                self._delete_document(document_id)
+        return found is not None
+
+    def documents(self, assistant_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT d.id, d.slot, d.name, d.kind, d.title, d.tokens, d.added_at, COUNT(p.id) "
+                "FROM documents d LEFT JOIN passages p ON p.document_id = d.id WHERE d.assistant_id = ? "
+                "GROUP BY d.id ORDER BY d.added_at, d.id",
+                (assistant_id,),
+            ).fetchall()
+        keys = ("id", "slot", "name", "kind", "title", "tokens", "added_at", "passages")
+        return [dict(zip(keys, row, strict=True)) for row in rows]
+
+    def passages(self, assistant_id: str, ids: list[int] | None = None) -> list[dict[str, Any]]:
+        """The assistant's passages in document order, or those of ``ids``, each with its document's name."""
+
+        query = (
+            "SELECT p.id, p.document_id, d.name, d.title, d.kind, p.heading, p.page, p.seq, p.body, p.text "
+            "FROM passages p JOIN documents d ON d.id = p.document_id WHERE p.assistant_id = ?"
+        )
+        parameters: list[Any] = [assistant_id]
+        if ids is not None:
+            if not ids:
+                return []
+            query += f" AND p.id IN ({', '.join('?' for _ in ids)})"
+            parameters += ids
+        with self._lock:
+            rows = self._connection.execute(query + " ORDER BY d.added_at, d.id, p.id", parameters).fetchall()
+        keys = ("id", "document_id", "document", "title", "kind", "heading", "page", "seq", "body", "text")
+        return [dict(zip(keys, row, strict=True)) for row in rows]
+
+    def keyword_search(self, assistant_id: str, match: str, limit: int) -> list[int]:
+        """The assistant's passages FTS5 finds for ``match``, best first (bm25)."""
+
+        if not match:
+            return []
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT f.rowid FROM passages_fts f JOIN passages p ON p.id = f.rowid "
+                "WHERE passages_fts MATCH ? AND p.assistant_id = ? ORDER BY bm25(passages_fts) LIMIT ?",
+                (match, assistant_id, limit),
+            ).fetchall()
+        return [int(row[0]) for row in rows]
+
+    def unembedded(self, assistant_id: str, model: str) -> list[tuple[int, str]]:
+        """The assistant's passages with no vector from ``model``: new ones, and any another model made."""
+
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT id, text FROM passages WHERE assistant_id = ? AND (vector IS NULL OR model != ?) ORDER BY id",
+                (assistant_id, model),
+            ).fetchall()
+        return [(int(row[0]), str(row[1])) for row in rows]
+
+    def set_vectors(self, model: str, vectors: list[tuple[int, bytes]]) -> None:
+        with self._lock, self._transaction():
+            self._connection.executemany(
+                "UPDATE passages SET model = ?, vector = ? WHERE id = ?",
+                [(model, blob, passage_id) for passage_id, blob in vectors],
+            )
+
+    def vectors(self, assistant_id: str, model: str) -> list[tuple[int, bytes]]:
+        """The assistant's vectors that ``model`` made, by passage."""
+
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT id, vector FROM passages WHERE assistant_id = ? AND model = ? AND vector IS NOT NULL "
+                "ORDER BY id",
+                (assistant_id, model),
+            ).fetchall()
+        return [(int(row[0]), bytes(row[1])) for row in rows]
 
     # -- grants ----------------------------------------------------------------
 

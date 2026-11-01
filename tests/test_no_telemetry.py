@@ -7,7 +7,10 @@ exception the rule allows is the provider the person chose: the chat run below h
 on this computer too (the emulated providers, as an OpenAI-compatible server), so even
 a whole chat through the agent core, its SDKs and its price data connects to nothing
 else. The tools run does it again with a solution's MCP server, through FastMCP and the
-MCP SDK, asking before a write and answered. A canary run plants an outbound connection
+MCP SDK, asking before a write and answered. The knowledge run fills a solution's slots
+with its samples, converts an HTML page through MarkItDown, cites a passage, and grows a
+collection past what goes whole, so the search model is looked for on this computer and,
+not being here, is only announced: nothing fetches it unasked. A canary run plants an outbound connection
 first, so a recorder that records nothing cannot pass for an app that sends nothing.
 """
 
@@ -21,7 +24,7 @@ from typing import Any
 import emulated_providers as emulator
 from running import Running
 
-from bailey.solutions import Assistant, Server, Skill, zip_solution
+from bailey.solutions import Assistant, Server, Skill, read_solution, zip_solution
 
 PASSPHRASE = "correct horse battery"
 
@@ -120,6 +123,33 @@ def _tool_chat(bailey: Running, drafts: Path) -> None:
     assert status == 200 and "Draft created in t-1042." in text, streamed
 
 
+def _knowledge_chat(bailey: Running) -> None:
+    """A solution's samples in its slots, a document converted, a cited answer, and a collection grown past whole."""
+
+    provider = emulator.serve_in_background()
+    settings = {"provider": "openai-compatible", "address": provider + "/local/v1", "model": "qwen3:8b"}
+    assert bailey.call("PUT", "/api/settings", settings)[0] == 200
+    fixture = Path(__file__).parent / "fixtures" / "shop-replies"
+    files = {path.relative_to(fixture).as_posix(): path.read_bytes() for path in fixture.rglob("*") if path.is_file()}
+    status, imported = bailey.call("POST", "/api/assistants/import", zip_solution(read_solution(files)))
+    assert status == 200, imported
+    url = f"/api/assistants/{imported['id']}/knowledge"
+    for slot in ("policies", "faq", "catalog"):
+        assert bailey.call("POST", f"{url}/samples/{slot}")[0] == 200
+    page = b"<html><body><h1>Events</h1><p>Author readings on the first Friday of each month.</p></body></html>"
+    assert bailey.call("POST", f"{url}?name=events.html", page)[0] == 200
+    status, conversation = bailey.call("POST", "/api/conversations", {"assistant": imported["id"]})
+    path = f"/api/conversations/{conversation['id']}/messages"
+    status, streamed = bailey.call("POST", path, {"text": "Can I return a book I did not like?"})
+    assert status == 200 and '"heading": "Returns"' in streamed, streamed
+    filler = " ".join(f"note{n}" for n in range(12_000))
+    assert bailey.call("POST", f"{url}?name=archive.md", f"# Archive\n\n{filler}".encode())[0] == 200
+    status, panel = bailey.call("GET", url)
+    assert status == 200 and panel["mode"] == "search" and panel["model"]["ready"] is False
+    status, refused = bailey.call("POST", path, {"text": "Can I return a book I did not like?"})
+    assert status == 409 and "downloads once from Hugging Face" in refused["error"]
+
+
 def _run(tmp_path: Path, mode: str) -> list[dict[str, Any]]:
     recorder = tmp_path / "recorder.py"
     recorder.write_text(_RECORDER, encoding="utf-8")
@@ -148,6 +178,8 @@ def _run(tmp_path: Path, mode: str) -> list[dict[str, Any]]:
             _chat(bailey)
         elif mode == "tools":
             _tool_chat(bailey, tmp_path / "drafts.jsonl")
+        elif mode == "knowledge":
+            _knowledge_chat(bailey)
     finally:
         bailey.stop()
     if not log.exists():
@@ -176,3 +208,9 @@ def test_a_chat_through_a_tool_server_connects_to_nothing_but_this_computer(tmp_
     assert any(event.get("event") == "socket.connect" for event in events), "the canary: the chat reached its provider"
     assert outbound(events) == []
     assert (tmp_path / "drafts.jsonl").read_text(encoding="utf-8").count("t-1042") == 1, "the write ran, once"
+
+
+def test_documents_cited_and_searched_connect_to_nothing_and_fetch_no_model_unasked(tmp_path: Path) -> None:
+    events = _run(tmp_path, "knowledge")
+    assert any(event.get("event") == "socket.connect" for event in events), "the canary: the chat reached its provider"
+    assert outbound(events) == []

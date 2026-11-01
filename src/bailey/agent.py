@@ -25,6 +25,12 @@ asks first, unless the person allowed it always for this assistant. A call that 
 ends the run there (``DeferredToolRequests``): the page puts the question, and the answer
 resumes the run from the stored conversation, so a question survives a reload or a
 restart. "No" reaches the model as the tool's result.
+
+**Documents** (design §3.7) reach the model one of two ways (:mod:`bailey.knowledge`): a
+small collection whole, in numbered passages that join the cached instructions, or a
+larger one through ``search_knowledge``, whose query the model writes. Either way the
+grounding clause (sigrix-io/sigrix#6190) asks it to answer from them, cite each passage it
+uses as ``[P12]``, and say plainly when they do not cover the question.
 """
 
 from __future__ import annotations
@@ -65,6 +71,7 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RunUsage
 
+from bailey.knowledge import Documents, passage_text
 from bailey.settings import Connection
 from bailey.solutions import Assistant, Server, Skill
 
@@ -73,6 +80,9 @@ pydantic_ai.BANNER_ENABLED = False
 __all__ = [
     "DECLINED",
     "LOAD_SKILL",
+    "NOTHING_FOUND",
+    "SEARCH_KNOWLEDGE",
+    "Documents",
     "Connection",
     "ToolNameClash",
     "answer",
@@ -87,6 +97,16 @@ __all__ = [
 
 #: The tool through which a skill's body reaches the model.
 LOAD_SKILL = "load_skill"
+
+#: The tool through which a searched collection's passages reach the model.
+SEARCH_KNOWLEDGE = "search_knowledge"
+
+#: Bailey's own tools, whose names no MCP server may take.
+OWN_TOOLS = (LOAD_SKILL, SEARCH_KNOWLEDGE)
+
+#: What ``search_knowledge`` says when no passage matched.
+NOTHING_FOUND = "No passage in the documents matches this. Tell the person the documents do not cover it."
+
 
 #: What the model is told, as the tool's result, when the person says no.
 DECLINED = "The person declined this action, so it did not run. Tell them it did not happen; do not try another way."
@@ -119,10 +139,42 @@ def model_settings(connection: Connection) -> ModelSettings:
     return ModelSettings()
 
 
-def context(assistant: Assistant) -> str:
-    """What every request opens with: the instructions, the voice, and the skills by name."""
+def grounding(documents: Documents) -> str:
+    """The grounding clause (sigrix-io/sigrix#6190), for documents sent whole or searched."""
 
-    sections = [assistant.instructions.body.strip()]
+    if documents.mode == "whole":
+        opening = "Below are the person's documents, in numbered passages. Answer from them."
+        uncovered = "When the documents do not cover a question, say so plainly; do not guess what they would say."
+    else:
+        opening = (
+            f"The person's documents are searched with `{SEARCH_KNOWLEDGE}`. Before you answer anything they "
+            "might cover, search them, in your own words for what the answer needs, and search again with other "
+            "words if the passages do not answer it. Answer from the passages you are given."
+        )
+        uncovered = (
+            "When the passages do not cover a question, say so plainly; do not guess what the documents would say."
+        )
+    rule = (
+        "Answer only from the documents: when they do not cover a question, say that they do not, and do not answer "
+        "it from anything else."
+        if documents.grounded_only
+        else "After saying so, you may answer from what you know, saying that the answer does not come from the documents."
+    )
+    return (
+        f"{opening} After each sentence that relies on a passage, cite it by its number in square brackets, "
+        f"like [P12]. {uncovered} {rule}"
+    )
+
+
+def context(assistant: Assistant, documents: Documents | None = None) -> str:
+    """What every request opens with: the instructions, the voice, the skills by name, and the documents.
+
+    Documents sent whole come last, so the instructions before them stay the same while a
+    collection changes, and the whole of it is one stable, cached prefix.
+    """
+
+    # The instructions skill's reference files come with it: no load_skill reaches them.
+    sections = [skill_text(assistant.instructions)]
     if assistant.persona.strip():
         sections.append("## Your voice\n\n" + assistant.persona.strip())
     if assistant.skills:
@@ -133,6 +185,11 @@ def context(assistant: Assistant) -> str:
             f"When a request needs one, call `{LOAD_SKILL}` with its name before you answer, and follow what it "
             "returns. Load only the skill the request needs.\n\n" + listed
         )
+    if documents is not None and documents.mode in ("whole", "search"):
+        section = "## Your documents\n\n" + grounding(documents)
+        if documents.mode == "whole":
+            section += "\n\n" + documents.text
+        sections.append(section)
     return "\n\n".join(section for section in sections if section)
 
 
@@ -172,9 +229,9 @@ async def tool_servers(toolsets: Mapping[str, Any]) -> dict[str, str]:
     owners: dict[str, str] = {}
     for server_name, toolset in toolsets.items():
         for tool in await toolset.list_tools():
-            if tool.name == LOAD_SKILL:
+            if tool.name in OWN_TOOLS:
                 raise ToolNameClash(
-                    f"The {server_name} tool server offers a tool named {LOAD_SKILL}, which is Bailey's own."
+                    f"The {server_name} tool server offers a tool named {tool.name}, which is Bailey's own."
                 )
             if tool.name in owners:
                 raise ToolNameClash(
@@ -190,8 +247,10 @@ def build_agent(
     assistant: Assistant,
     toolsets: Mapping[str, Any] | None = None,
     granted: Collection[tuple[str, str]] = (),
+    documents: Documents | None = None,
 ) -> Agent[None, Any]:
-    """The assistant's agent: its context, ``load_skill``, and each running server's tools behind the approval rule."""
+    """The assistant's agent: its context, ``load_skill``, ``search_knowledge`` for a searched
+    collection, and each running server's tools behind the approval rule."""
 
     held = [
         toolset.approval_required(asks_first(server, granted))
@@ -200,7 +259,7 @@ def build_agent(
     ]
     agent: Agent[None, Any] = Agent(
         build_model(connection),
-        instructions=context(assistant),
+        instructions=context(assistant, documents),
         model_settings=model_settings(connection),
         toolsets=held,
         output_type=[str, DeferredToolRequests] if held else str,
@@ -221,6 +280,21 @@ def build_agent(
 
     if assistant.skills:
         agent.tool_plain(name=LOAD_SKILL)(load_skill)
+
+    if documents is not None and documents.mode == "search" and documents.search is not None:
+        search = documents.search
+
+        def search_knowledge(query: str) -> str:
+            """Search the person's documents, and get back the passages that best match, each numbered with its source.
+
+            Args:
+                query: What to look for, in your own words: the facts the answer needs, not the person's message as it stands.
+            """
+
+            hits = search(query)
+            return "\n\n".join(passage_text(hit) for hit in hits) if hits else NOTHING_FOUND
+
+        agent.tool_plain(name=SEARCH_KNOWLEDGE)(search_knowledge)
     return agent
 
 
@@ -318,6 +392,7 @@ async def answer(
     toolsets: Mapping[str, Any] | None = None,
     granted: Collection[tuple[str, str]] = (),
     decisions: Mapping[str, bool] | None = None,
+    documents: Documents | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Stream one answer as events for the page.
 
@@ -335,7 +410,7 @@ async def answer(
     events: Any = None
     try:
         servers = await tool_servers(toolsets or {})
-        agent = build_agent(connection, assistant, toolsets, granted)
+        agent = build_agent(connection, assistant, toolsets, granted, documents)
         results = None
         if decisions is not None:
             results = DeferredToolResults(
@@ -356,9 +431,11 @@ async def answer(
                 elif isinstance(event, FunctionToolCallEvent):
                     if event.part.tool_name == LOAD_SKILL:
                         yield {"type": "skill", "name": str(event.part.args_as_dict().get("name", ""))}
+                    elif event.part.tool_name == SEARCH_KNOWLEDGE:
+                        yield {"type": "search", "query": str(event.part.args_as_dict().get("query", ""))}
                     else:
                         yield {"type": "tool", **_call(event.part, servers)}
-                elif isinstance(event, FunctionToolResultEvent) and event.part.tool_name not in (LOAD_SKILL, None):
+                elif isinstance(event, FunctionToolResultEvent) and event.part.tool_name not in (*OWN_TOOLS, None):
                     outcome = event.part.outcome if isinstance(event.part, ToolReturnPart) else "retry"
                     yield {"type": "tool_result", "id": event.part.tool_call_id, "outcome": outcome}
                 elif isinstance(event, AgentRunResultEvent):

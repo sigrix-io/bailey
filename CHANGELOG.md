@@ -8,6 +8,60 @@ described in `VERSIONING.md`.
 
 ### Added
 
+- Knowledge (story S8 of 0.1). Each assistant keeps a collection of documents on this
+  computer. Markdown, text, CSV and JSON go in as they are; PDF, Word and HTML are
+  converted by MarkItDown's converter for that kind, called directly rather than through
+  its guess at a file's kind, so a damaged PDF is refused instead of being kept as noise.
+  A document is split into passages of about 180 words that overlap by 30, each under its
+  heading and, in a PDF, its page, and a table keeps its header row in every passage. The
+  store's fourth migration keeps the documents, their passages and a full-text index over
+  them (FTS5). Nothing of a document leaves the computer but the passages a request
+  carries.
+- Two ways to the model, as S1's ruling asked (Decision 6), with the limit set by the cost
+  of a message (`spike/s8/whole_or_searched.py`). A collection of up to 10,000 tokens goes
+  into the instructions whole, every passage numbered, on Anthropic and OpenAI, whose prompt
+  caches make that cheaper than searching while the cache is warm: 0.76 and 0.85 of a
+  searched message. When the cache has gone cold, after a few idle minutes, it costs 2.2
+  and 1.8 times one. A larger collection, or one over 2,000 tokens on a local server, whose
+  context window Bailey cannot know, is searched: the model calls
+  `search_knowledge` with a query of its own, keywords and vectors each rank the passages,
+  reciprocal rank fusion merges the two rankings, and the five best come back numbered. A
+  passage that only the vectors found is dropped below a cosine similarity of 0.2.
+- Citations. The instructions ask the model to cite each passage it relies on as `[P12]`,
+  and to say plainly when the documents do not cover a question. Bailey reads the numbers
+  out of the answer and stores each cited passage's document, heading and text on the
+  answer's record. The chat shows the sources under the answer, each opening to its
+  passage, and they survive a reload. Each search the model makes is shown as it runs. An
+  assistant set to answer only from its documents stops there, instead of going on to
+  answer from what the model knows. That setting is the person's, kept with the assistant
+  in Bailey; the solution format does not carry it, so an export leaves it out.
+- The search model is all-MiniLM-L6-v2, run through fastembed and onnxruntime, and it is
+  downloaded only when the person asks for it. A collection that needs searching names
+  the model, its size (about 90 MB) and Hugging Face, and the Documents panel downloads it
+  at a button. Until then it loads with nothing fetched, and a chat that needs it says
+  what to download instead of answering without the documents. Hugging Face's telemetry is
+  off. `BAILEY_SEARCH_MODEL` names a folder that holds the model, for a computer that
+  cannot reach Hugging Face.
+- Each assistant's Documents panel lists what its solution asks for, each slot with the
+  file types it takes, holding the person's own file or the solution's sample once they
+  choose it. It also lists their other documents and says how large the collection is and
+  which way it reaches the model.
+- The solution format: `assistant.json`'s `knowledge` names the documents a solution asks
+  for (a name, a sentence, the file types and whether it is required), and
+  `samples/<name>.<type>` holds a text sample for each, which an import keeps and an export
+  writes back. Importing a solution that asks for documents opens its Documents panel. A
+  skill's `references/` files are indexed for search but never sent whole, because their
+  skill already carries them.
+- The contract tests for knowledge run on the provider emulator with the fixture solution
+  `tests/fixtures/shop-replies`. On all three protocols, sent whole and searched, a question
+  the documents cover is answered with a citation of the passage that covers it, and one
+  they do not cover is answered by saying so. The tests embed with a stand-in, and one test
+  runs the real model, which CI downloads on one job. The no-telemetry test now runs a
+  chat over documents.
+- `markitdown[pdf,docx]` 0.1.8, `fastembed` 0.9.0, `onnxruntime` 1.31.0 and `numpy` 2.5.4,
+  pinned exactly. numpy 2.5 needs Python 3.12, so Python 3.11 takes numpy 2.4.6. They load
+  when a document is added or searched, not when the app starts.
+
 - Tools (story S7 of 0.1). Each MCP server a solution's `mcp.json` names starts as its own
   process over stdio, built on FastMCP's base `StdioTransport` rather than its `uvx` and
   `npx` helpers, which hand a child the app's whole environment. A server receives the MCP
@@ -135,6 +189,9 @@ described in `VERSIONING.md`.
 
 ### Changed
 
+- `bailey doctor` no longer checks whether SQLite can load an extension, so `--json`
+  prints one entry fewer. The vectors are stored as BLOBs and compared in numpy, so
+  nothing in Bailey loads one (S1's ruling, Decision 6). FTS5 stays required.
 - The README opens with badges for the PyPI release, the Python versions, CI
   and the licence, and a new *Where it fits* section names the projects a
   solution's apps meet: Postern, which they speak, and Gatehouse, which the
@@ -155,6 +212,17 @@ described in `VERSIONING.md`.
 
 ### Fixed
 
+- A first message sent while the agent core was still loading in the background could
+  fail with a server error. Reading the conversation imported PydanticAI's messages beside
+  the background import, and two threads importing one package through different modules
+  can deadlock in Python's import system. Every import of the core now goes through
+  `bailey.core.load`, in one order, so a second thread waits for the first.
+- A skill's frontmatter value wrapped over indented lines, as an editor wraps a long
+  description, now reads whole. A plain value was cut to its first line, and a quoted one
+  refused the import. A blank line inside the value is a line break, as YAML reads it.
+- The reference files of the skill that holds an assistant's instructions never reached
+  the model: no `load_skill` call loads that skill, and its body alone went into the
+  instructions. Its `references/` files now go in with it.
 - The Assistants view could lose an assistant just imported: a list asked for before the
   import, answering after it, drew the list without it. A list answer older than the
   latest change is now dropped.

@@ -22,7 +22,6 @@ from bailey import doctor
 from bailey.doctor import (
     Check,
     check_data_folder,
-    check_extension_loading,
     check_full_text_search,
     check_keychain,
     check_loopback,
@@ -73,22 +72,10 @@ def test_sqlite_with_fts5_passes_on_a_real_connection() -> None:
 
 def test_a_python_without_sqlite_is_reported_rather_than_crashing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(doctor, "sqlite3", None)
-    fts, extensions = check_full_text_search(), check_extension_loading()
+    fts = check_full_text_search()
     assert (fts.ok, fts.required) == (False, True)
-    assert (extensions.ok, extensions.required) == (False, False)
-    for check in (fts, extensions):
-        assert check.found == "this Python has no sqlite3 module"
-        assert "built without SQLite" in check.fix
-
-
-def test_extension_loading_is_optional() -> None:
-    class Locked:
-        pass
-
-    check = check_extension_loading(Locked)
-    assert (check.ok, check.required) == (False, False)
-    assert "Keyword search still works" in check.fix
-    assert check_extension_loading(type("Open", (), {"enable_load_extension": None})).ok
+    assert fts.found == "this Python has no sqlite3 module"
+    assert "built without SQLite" in fts.fix
 
 
 @pytest.mark.parametrize("present", ["uvx", "uv"])
@@ -218,7 +205,6 @@ def test_the_checks_come_in_a_fixed_order_and_each_says_what_it_is_for() -> None
     assert [check.name for check in checks] == [
         "Python",
         "SQLite full-text search",
-        "SQLite extensions",
         "uv",
         "Node.js",
         "Loopback",
@@ -242,7 +228,7 @@ def test_it_reaches_nothing_beyond_this_machine(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(socket.socket, "connect", refuse)
     monkeypatch.setattr(socket, "create_connection", refuse)
-    assert len(run_checks()) == 8
+    assert len(run_checks()) == 7
 
 
 def test_the_command_answers_with_json_on_a_real_process() -> None:

@@ -1,0 +1,6 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "shop-replies",
+  "description": "Drafts replies to a small bookshop's customer email from its own documents.",
+  "extensions": {"org.sigrix": {"assistant": "assistant.json"}}
+}
