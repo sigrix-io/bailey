@@ -321,7 +321,7 @@ def read_solution(files: Mapping[str, bytes]) -> Assistant:
 def _safe_member(name: str) -> str | None:
     """The path an entry may be read under, or ``None`` for one Bailey refuses."""
 
-    if "\\" in name or name.startswith("/") or re.match(r"^[A-Za-z]:", name):
+    if "\\" in name or "\0" in name or name.startswith("/") or re.match(r"^[A-Za-z]:", name):
         return None
     parts = [part for part in name.split("/") if part not in ("", ".")]
     if any(part == ".." for part in parts):
@@ -338,17 +338,22 @@ def unzip_solution(data: bytes) -> dict[str, bytes]:
         archive = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile as error:
         raise SolutionRefused("That file is not a zip.") from error
-    entries = [info for info in archive.infolist() if not info.is_dir()]
+    # Each entry is judged by the name the archive carries, ``orig_filename``. Python's
+    # ``filename`` is rewritten by platform: on Windows a backslash becomes "/", and
+    # everywhere a NUL ends the name. Judged by that copy, one package would be refused
+    # on Linux and macOS and taken on Windows. Sigrix's import refuses both characters too.
+    entries = [info for info in archive.infolist() if not info.orig_filename.endswith("/")]
     if len(entries) > MAX_ENTRIES:
         raise SolutionRefused(f"The package holds more than {MAX_ENTRIES} files.")
     total = 0
     files: dict[str, bytes] = {}
     for info in entries:
+        name = info.orig_filename
         if stat.S_ISLNK(info.external_attr >> 16):
-            raise SolutionRefused(f"{info.filename} is a link, which a package may not carry.")
-        path = _safe_member(info.filename)
+            raise SolutionRefused(f"{name} is a link, which a package may not carry.")
+        path = _safe_member(name)
         if path is None:
-            raise SolutionRefused(f"{info.filename} points outside the package.")
+            raise SolutionRefused(f"{name} points outside the package.")
         if info.file_size > MAX_FILE_BYTES:
             raise SolutionRefused(f"{path} is larger than {MAX_FILE_BYTES // 1024} KB.")
         if info.compress_size and info.file_size / info.compress_size > MAX_COMPRESSION_RATIO:

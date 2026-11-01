@@ -45,7 +45,12 @@ def _zip(files: dict[str, bytes], *, symlink: str = "") -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path, content in files.items():
-            archive.writestr(path, content)
+            # The name is set after the ZipInfo is made. Made from it, a backslash turns into
+            # "/" on Windows, so the archive would not carry the name the case is about.
+            info = zipfile.ZipInfo("entry")
+            info.filename = path
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, content)
         if symlink:
             info = zipfile.ZipInfo(symlink)
             info.external_attr = (stat.S_IFLNK | 0o777) << 16
@@ -152,13 +157,26 @@ def test_a_reserved_word_or_a_bad_name_in_a_skill_is_refused() -> None:
         (lambda: _zip({"../escape.md": b"x"}), "points outside the package"),
         (lambda: _zip({"/etc/passwd": b"x"}), "points outside the package"),
         (lambda: _zip({"a\\b.md": b"x"}), "points outside the package"),
+        (lambda: _zip({"skills\\": b""}), "points outside the package"),
+        (lambda: _zip({"assistant.json\0.md": b"x"}), "points outside the package"),
         (lambda: _zip({"assistant.json": b"{}"}, symlink="skills/link"), "is a link"),
         (lambda: _zip({f"f{i}.md": b"x" for i in range(301)}), "more than 300 files"),
         (lambda: _zip({"big.md": b"\0" * (600 * 1024)}), "larger than 512 KB"),
         (lambda: _zip({"bomb.md": b"\0" * (400 * 1024)}), "archive bomb"),
         (lambda: b"not a zip at all", "is not a zip"),
     ],
-    ids=["dot-dot", "absolute", "backslash", "symlink", "too-many", "too-large", "ratio", "not-a-zip"],
+    ids=[
+        "dot-dot",
+        "absolute",
+        "backslash",
+        "backslash-folder",
+        "nul",
+        "symlink",
+        "too-many",
+        "too-large",
+        "ratio",
+        "not-a-zip",
+    ],
 )
 def test_an_archive_bomb_a_link_or_a_path_outside_the_package_is_refused(archive: Any, sentence: str) -> None:
     with pytest.raises(SolutionRefused, match=sentence):
