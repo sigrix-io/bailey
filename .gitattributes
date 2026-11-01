@@ -1,0 +1,4 @@
+# A vendored release is kept byte for byte: tests/test_gatehouse_vendored.py holds each
+# file to the sha256 its release names, which a checkout that converts line endings
+# (core.autocrlf, as on Windows) would break.
+src/bailey/web/gatehouse/** text eol=lf
