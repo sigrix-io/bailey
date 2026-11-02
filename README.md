@@ -14,7 +14,7 @@
 
 An open-source AI assistant that runs ready-made solutions: on your own machine, with your own AI key.
 
-> **Early days.** This is release 0.0.1. It installs one command, `bailey doctor`, which checks that your computer has what the assistant will need. The assistant itself arrives in 0.1.
+> **0.1: the app, without the store.** A solution installs from a file, a ZIP or a folder, and does its job on your computer. Signing in, the store and updates arrive in 0.2.
 
 ## What Bailey is for
 
@@ -29,6 +29,38 @@ Bailey runs **solutions** instead: complete, versioned packages for one job, suc
 - **No telemetry.**
 
 Solutions can be free, or bought on [Sigrix](https://sigrix.io), where builders sell what they make for Bailey.
+
+## Start it
+
+```sh
+uvx bailey
+```
+
+It starts on this computer's own address and opens in your browser. `pipx run bailey` works as well, or `pip install bailey` and then `bailey`; each needs Python 3.11 or newer, and `uvx` comes with [uv](https://docs.astral.sh/uv/). The address it prints carries this session's token, which changes each time Bailey starts, so a page that is not Bailey's cannot talk to it.
+
+Or with Docker, which also brings what a solution's tools need, Node.js and uv, and the search model:
+
+```sh
+docker run -p 127.0.0.1:8123:8123 -v bailey:/data sigrix/bailey
+```
+
+Open the address it prints. Your settings, assistants, conversations, documents and keys stay in the `bailey` volume. A container has no keychain, so Bailey keeps your keys there in a file encrypted under a passphrase, which the page asks you to choose the first time, and to type each time Bailey starts; `-e BAILEY_PASSPHRASE=…` gives it instead. The image runs on amd64 and arm64.
+
+Then, in the page:
+
+1. In Settings, choose your AI provider and give its key, which goes to your computer's keychain, or to the encrypted file where there is none.
+2. Under Assistants, install a solution from a file: a ZIP, or a folder, which is what Safari makes of a download. Before anything is written, an install screen says what it does, which keys it needs and what reads them, the documents it asks for, which tools change something, and what it leaves out. Anything installed from a file is marked unverified, since nobody has checked it. A Sigrix download installs as it is.
+3. Give it the documents it asks for, or try it on the made-up samples a solution comes with first.
+
+Or start from one of Bailey's own templates, and edit it as a form.
+
+### What it downloads, and when
+
+Besides Bailey itself, three things, each when it is first needed:
+
+- **The search model**, about 90 MB from Hugging Face, the first time a collection of documents is too large to send whole, once you say yes to it. The Docker image carries it. On a computer that cannot reach Hugging Face, put the files of `Qdrant/all-MiniLM-L6-v2-onnx` in a folder and set `BAILEY_SEARCH_MODEL` to that folder.
+- **An app's environment**, with CrewAI and its libraries: about 250 MB from PyPI, once you say yes to it, built with `uv` when it is installed, and about 900 MB on disk.
+- **A tool server's package**, which `uvx` or `npx` fetches the first time a conversation starts that server, as the solution's `mcp.json` says. The install screen names each server before anything is installed.
 
 ## Check your machine
 
@@ -50,6 +82,14 @@ uvx bailey doctor
 
 It exits 1 when a required check fails, and `bailey doctor --json` prints the same answers for a script. It reads your machine only: no network call, no file written.
 
+## Check a solution
+
+```sh
+bailey check path/to/solution
+```
+
+`bailey check` runs a solution, a folder or a ZIP, with no browser, in a Bailey of its own that keeps nothing. It runs the solution's examples, and for each document the solution asks for, one question its sample answers and one that no document answers. It says which cases pass, and why the others fail. It runs on the provider, model and key in your settings, or on `--provider` and `--model` with the key in `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. A tool that changes something is refused, never run. It exits 1 when a case fails and 2 when it cannot run, and `--json` prints the report, provider and model included, for a script or a CI job.
+
 ## The solution format
 
 A solution is an Agent Plugins folder plus one file, `assistant.json`, which says how its parts fit together: which skill holds the instructions, which skills load when needed, which tools write, and which documents to ask you for. Its schema is published in [`schemas/`](schemas/README.md), so anyone can build a solution Bailey runs.
@@ -58,15 +98,14 @@ A solution names the keys it needs and never carries one: Bailey refuses a packa
 
 ## What comes next
 
-- **0.1: the app.** Chat, assistants, skills loaded when needed, tools with approval, knowledge from your own documents with citations, apps, installing a solution from a file, and `bailey check`, which runs a solution's examples with no browser.
-- **0.2: the store.** Sign in, browse, install and update solutions, and publish your own.
+- **0.2: the store.** Sign in with your Sigrix account, browse, install and update solutions in the app, and publish your own.
 
 ## Where it fits
 
 Bailey is one of the open-source projects [Sigrix](https://sigrix.io) publishes, and the one the solutions sold there are built for. A solution's apps build on two of the others:
 
 - **[Postern](https://github.com/sigrix-io/postern)**, the open protocol the apps speak: four HTTP verbs an agent serves, and the licence check the packaging standards leave out.
-- **[Gatehouse](https://github.com/sigrix-io/gatehouse)**, the page a person runs an agent from in the browser, for any runner that serves those verbs. The app planned for 0.1 draws a solution's apps with it.
+- **[Gatehouse](https://github.com/sigrix-io/gatehouse)**, the page a person runs an agent from in the browser, for any runner that serves those verbs. Bailey draws a solution's apps with it.
 
 Every project Sigrix publishes, and a map of how they connect: [sigrix.io/open-source](https://sigrix.io/open-source).
 
@@ -77,27 +116,9 @@ pip install -e ".[dev]"
 ruff check . && ruff format --check . && mypy && pytest
 ```
 
-From a checkout, `bailey` starts the app as far as 0.1 has come: chat with an assistant on your AI provider,
-skills loaded when a request needs them, a solution's MCP tools with a question before any tool that changes
-something, documents that answers cite, sent whole or searched on this computer, a solution's crew apps drawn by
-Gatehouse, assistants made from templates, edited and exported, solutions installed from a ZIP or a folder after an
-install screen that says what each needs, a Sigrix download among them, and settings with your provider's key.
-`CONTRIBUTING.md` says how to keep a development setup apart from your own.
-
-`bailey check <solution>` runs a solution, a folder or a ZIP, with no browser, in a Bailey of its own that
-keeps nothing. It runs the solution's examples, and for each document the solution asks for, one question its
-sample answers and one that no document answers. It says which cases pass, and why the others fail. It runs on
-the provider, model and key in your settings, or on `--provider` and `--model` with the key in
-`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. A tool that changes something is refused, never run. It exits 1 when a
-case fails and 2 when it cannot run, and `--json` prints the report, provider and model included, for a script
-or a CI job.
-
-Searching a large collection of documents takes a model of about 90 MB, which Bailey downloads from Hugging Face
-once you say yes to it. On a computer that cannot reach Hugging Face, put the files of
-`Qdrant/all-MiniLM-L6-v2-onnx` in a folder and set `BAILEY_SEARCH_MODEL` to that folder.
-
-An app runs in an environment of its own, with CrewAI and its libraries: about 250 MB from PyPI, downloaded once
-you say yes to it, with `uv` when it is installed, and about 900 MB on disk.
+From a checkout, `bailey` starts the app, and `CONTRIBUTING.md` says how to keep a development setup apart
+from your own. The image builds from a wheel: `python -m build --wheel`, then `docker build .`, and
+`scripts/check_launch.py --image <tag>` opens the app in it as CI does.
 
 ## Licence
 

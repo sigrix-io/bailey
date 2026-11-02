@@ -6,8 +6,29 @@ described in `VERSIONING.md`.
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-11-02
+
+The app, without the store: a solution installed from a file does its job on this computer,
+on the person's own AI provider and key. `uvx bailey`, or `docker run sigrix/bailey`.
+
 ### Added
 
+- The image `sigrix/bailey` (story S12 of 0.1):
+  `docker run -p 127.0.0.1:8123:8123 -v bailey:/data sigrix/bailey`. It carries:
+  - Node.js 24 with npm and npx, and uv and uvx, which a solution's tool servers start with;
+  - the search model, so nothing is fetched on its first run.
+
+  tini is PID 1, Bailey runs as a user of its own, its data is in the `/data` volume, and its
+  keys are in the encrypted file. `image.yml` builds it on amd64 and arm64 from the wheel PyPI
+  serves for a release, once the release succeeds. Every image is opened as a person opens it
+  before it is pushed, and again once pulled by name.
+- In a container (`BAILEY_CONTAINER=1`, which the image sets), Bailey listens on the
+  container's own address, which a published port reaches, and opens no browser. A request
+  still needs a loopback Host and the session's token.
+- `scripts/check_launch.py` opens the app as a person does and checks the page, the token,
+  both refusals and a clean stop; in the image, also its tools, the search model with the
+  network off, and `bailey doctor`. CI runs it against the image on every pull request, on
+  both architectures, and the release against the PyPI install.
 - `bailey check <solution>` (story S11 of 0.1) runs a solution headless, with no browser. It runs
   the solution's examples, plus a grounding pair for each knowledge slot that has a sample, in a
   Bailey of its own that keeps nothing. It drives the app's own routes in-process, so the

@@ -1,0 +1,148 @@
+name: Image
+
+# sigrix/bailey on Docker Hub, built from the wheel a release put on PyPI.
+#
+# A workflow of its own, beside release.yml rather than in it: PyPI trusts that workflow
+# through OIDC, so it holds no credential at all (tests/test_workflow_pins.py), while Docker
+# Hub takes an account and an access token. Those are REGISTRY_USERNAME and REGISTRY_TOKEN,
+# as publish_runner_image.yml in sigrix-io/sigrix names them, in this repository's
+# `docker-hub` environment, and only the two jobs that push read them. VERSIONING.md has the
+# owner's half.
+#
+# It runs once the Release workflow succeeds for a tag, and by hand for a release already
+# on PyPI. Each architecture is built on its own runner from the wheel PyPI serves for that
+# version, opened as a person opens it (scripts/check_launch.py), and pushed under its own
+# tag; then the version and `latest` are made of the two, and pulled back by name on a clean
+# runner of each.
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "A release already on PyPI, such as 0.1.0"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-${{ github.event.workflow_run.head_branch || inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    # A release that failed published nothing to build from, and a fork's tags are not ours.
+    if: >-
+      github.repository == 'sigrix-io/bailey' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - id: version
+        env:
+          TAG: ${{ github.event.workflow_run.head_branch }}
+          GIVEN: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="${GIVEN:-${TAG#v}}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Not a release version: '$version'."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  image:
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    environment: docker-hub
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The wheel PyPI serves for this version, so the image holds what `uvx bailey` installs.
+      - name: Fetch the release's wheel from PyPI
+        run: |
+          set -euo pipefail
+          python3 -m pip download --no-deps --only-binary :all: --dest dist "bailey==$VERSION"
+          ls dist
+      - name: Build this architecture's image
+        run: |
+          docker build \
+            --label "org.opencontainers.image.version=$VERSION" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --tag "sigrix/bailey:$VERSION-$ARCH" .
+      - name: Open the app in it
+        run: python3 scripts/check_launch.py --image "sigrix/bailey:$VERSION-$ARCH" --expect-version "$VERSION"
+      - name: Push it
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$REGISTRY_USERNAME" ] || [ -z "$REGISTRY_TOKEN" ]; then
+            echo "::error::No Docker Hub credential: set REGISTRY_USERNAME and REGISTRY_TOKEN in the docker-hub environment (VERSIONING.md)."
+            exit 1
+          fi
+          printf '%s' "$REGISTRY_TOKEN" | docker login docker.io --username "$REGISTRY_USERNAME" --password-stdin
+          docker push "sigrix/bailey:$VERSION-$ARCH"
+          docker logout docker.io || true
+
+  manifest:
+    needs: [resolve, image]
+    runs-on: ubuntu-latest
+    environment: docker-hub
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+    steps:
+      - name: Make the version and latest of the two architectures
+        env:
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$REGISTRY_TOKEN" | docker login docker.io --username "$REGISTRY_USERNAME" --password-stdin
+          docker buildx imagetools create \
+            --tag "sigrix/bailey:$VERSION" --tag sigrix/bailey:latest \
+            "sigrix/bailey:$VERSION-amd64" "sigrix/bailey:$VERSION-arm64"
+          docker buildx imagetools inspect "sigrix/bailey:$VERSION"
+          docker logout docker.io || true
+
+  # A push that succeeds is not the same as an image anyone can run. Pull it by name on a
+  # clean runner of each architecture, as `docker run sigrix/bailey` does, and open it.
+  verify:
+    needs: [resolve, manifest]
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts/check_launch.py
+          sparse-checkout-cone-mode: false
+      - name: Pull it by name
+        run: docker pull "sigrix/bailey:$VERSION" && docker pull sigrix/bailey:latest
+      - name: Open the app in it
+        run: python3 scripts/check_launch.py --image "sigrix/bailey:$VERSION" --expect-version "$VERSION"
+      - name: latest is this version
+        run: |
+          set -euo pipefail
+          test "$(docker image inspect --format '{{.Id}}' sigrix/bailey:latest)" = \
+               "$(docker image inspect --format '{{.Id}}' "sigrix/bailey:$VERSION")"

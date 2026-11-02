@@ -1,5 +1,6 @@
-# Keeps the two things this repository pins from ageing quietly: the dev tools
-# in pyproject.toml, and the commits every workflow's `uses:` names. A pin only
+# Keeps the three things this repository pins from ageing quietly: the dev tools
+# in pyproject.toml, the commits every workflow's `uses:` names, and the digests
+# the Dockerfile's two base images are pinned by (tests/test_image.py). A pin only
 # stays correct if something bumps it. A bump that breaks anything arrives as a
 # red check on a pull request nobody has merged, and `ci-passed` is required on
 # `main`, so it cannot land without passing.
@@ -34,5 +35,14 @@ updates:
       interval: "weekly"
     groups:
       github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      docker-images:
         patterns:
           - "*"

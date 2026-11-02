@@ -1,7 +1,9 @@
 """The app server: Bailey's page and its API, on this computer's own address, for one person.
 
 ``uvx bailey`` runs :func:`serve`: it opens the data folder, the local store and the keys,
-listens on 127.0.0.1, and opens the browser on the launch address.
+listens on 127.0.0.1, and opens the browser on the launch address. In the ``sigrix/bailey``
+image (:data:`CONTAINER_VARIABLE`) it listens on the container's own address instead, which is
+what a port published with ``docker run -p`` reaches, and opens no browser.
 
 Two rules hold for every request, in one middleware (:class:`Guard`), so no route can be
 added without them:
@@ -173,6 +175,20 @@ SECURITY_HEADERS: tuple[tuple[bytes, bytes], ...] = (
 _SECURITY_HEADER_NAMES = frozenset(name for name, _ in SECURITY_HEADERS)
 
 LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "[::1]"})
+
+#: Set to ``1`` by the ``sigrix/bailey`` image, and by nothing else. Inside a container a port
+#: published with ``docker run -p`` reaches the container's own address, never its 127.0.0.1,
+#: so there Bailey listens on every address the container has, and opens no browser, since
+#: the container has none. Both rules every request meets stay as they are: the Host must be
+#: a loopback name, and the request must carry this session's token.
+CONTAINER_VARIABLE = "BAILEY_CONTAINER"
+LOOPBACK = "127.0.0.1"
+EVERY_ADDRESS = "0.0.0.0"  # noqa: S104 -- inside a container only, behind the Host rule and the token
+
+
+def in_container(environ: Mapping[str, str]) -> bool:
+    return environ.get(CONTAINER_VARIABLE, "").strip() == "1"
+
 
 #: The static files the page loads, each with its type. Nothing else is served from disk.
 #: Gatehouse, which draws an app's run page, is a vendored release (``web/gatehouse/``).
@@ -1631,14 +1647,14 @@ def build_app(state: AppState) -> ASGIApp:
     return Guard(app, state.token)
 
 
-def bind_loopback(port: int) -> socket.socket:
-    """A socket listening on 127.0.0.1 alone; port 0 takes any free one."""
+def bind_listener(port: int, address: str = LOOPBACK) -> socket.socket:
+    """A socket listening on ``address``, 127.0.0.1 alone unless in a container; port 0 takes any free one."""
 
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         if os.name != "nt":  # on Windows the same option would let another program take the port
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        listener.bind(("127.0.0.1", port))
+        listener.bind((address, port))
         # Listening before the server starts queues an early request rather than refusing it.
         listener.listen(128)
     except OSError:
@@ -1711,13 +1727,18 @@ def serve(
         except (UnreadableKeyFile, PassphraseRefused) as error:
             out.write(f"{error}\n")
             return 1
+        container = in_container(environ)
+        listening = EVERY_ADDRESS if container else LOOPBACK
         try:
-            listener = bind_loopback(port)
+            listener = bind_listener(port, listening)
         except OSError as error:
-            out.write(f"Bailey cannot listen on 127.0.0.1:{port}: {error.strerror or error}.\n")
+            out.write(f"Bailey cannot listen on {listening}:{port}: {error.strerror or error}.\n")
             return 1
         token = secrets.token_urlsafe(32)
-        address = f"http://127.0.0.1:{listener.getsockname()[1]}/"
+        bound = listener.getsockname()[1]
+        # The address this computer's browser opens: in a container, the port published to
+        # its 127.0.0.1, which the next line asks to be the same port.
+        address = f"http://127.0.0.1:{bound}/"
         launch = f"{address}#token={token}"
         state = AppState(token=token, store=store, keys=keys, data_folder=folder)
         config = uvicorn.Config(
@@ -1728,10 +1749,15 @@ def serve(
             f"Bailey {__version__} is running on this computer at {address}\n"
             f"Open it at {launch}\n"
             "That address carries this session's token, which changes each time Bailey starts.\n"
-            "Press Ctrl+C to stop.\n"
+            + (
+                f"This is a container: publish its port {bound} to the same port on this computer's own "
+                f"address, as docker run -p 127.0.0.1:{bound}:{bound} does.\n"
+                if container
+                else "Press Ctrl+C to stop.\n"
+            )
         )
         out.flush()
-        if open_browser:
+        if open_browser and not container:
             threading.Thread(target=_open_when_ready, args=(server, launch, out), daemon=True).start()
         threading.Thread(target=_warm_up, daemon=True).start()
         # uvicorn shuts down gracefully on Ctrl+C or a terminate signal, then raises the
