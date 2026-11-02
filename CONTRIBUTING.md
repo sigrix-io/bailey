@@ -111,6 +111,19 @@ for the tests and for trying an app by hand.
 Each doctor check takes what it probes as an argument, so a test can hand it a
 machine that lacks something. A new check comes with a test on both sides.
 
+The image, `sigrix/bailey`, is built from a wheel, never from the checkout:
+`python -m build --wheel`, then `docker build --tag bailey:dev .`. Then
+`python scripts/check_launch.py --image bailey:dev` opens the app in it as CI does
+on every pull request, on amd64 and arm64:
+- the page, the token, a request without it and one naming another Host;
+- `node`, `npx`, `uv` and `uvx`;
+- the search model with the network off;
+- `bailey doctor`, and a clean stop.
+
+`BAILEY_CONTAINER=1`, which the image sets, makes Bailey listen on the container's own
+address, so a published port reaches it; set it nowhere else. `tests/test_image.py`
+holds the Dockerfile to what the app, the README and the workflows say about it.
+
 ## Pull requests
 
 - One change per pull request, with a test that fails without it.

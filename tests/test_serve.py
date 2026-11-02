@@ -10,11 +10,14 @@ encrypted file, which every machine has; the keychain's own round trip is
 from __future__ import annotations
 
 import base64
+import contextlib
 import os
 import re
 import signal
 import socket
 import sqlite3
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -210,3 +213,112 @@ def test_the_server_starts_without_loading_the_agent_core() -> None:
         check=False,
     )
     assert completed.stdout.strip() == "[]", completed.stderr
+
+
+# ---------------------------------------------------------------------------
+# In the sigrix/bailey image
+# ---------------------------------------------------------------------------
+
+
+def _own_address() -> str | None:
+    """An IPv4 address of this machine that is not a loopback one, if it has one.
+
+    The one its default route leaves from: connecting a UDP socket sends nothing, and names
+    the address a packet would go out on. Failing that, what its own name resolves to.
+    """
+
+    with contextlib.suppress(OSError), socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        probe.connect(("192.0.2.1", 9))  # TEST-NET-1: nothing answers, and nothing is sent
+        address = str(probe.getsockname()[0])
+        if not address.startswith("127.") and address != "0.0.0.0":  # noqa: S104 -- read, not bound
+            return address
+    try:
+        found = socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET, socket.SOCK_STREAM)
+    except OSError:
+        return None
+    return next((str(entry[4][0]) for entry in found if not str(entry[4][0]).startswith("127.")), None)
+
+
+def _answers_on(address: str, port: int) -> bool:
+    try:
+        with socket.create_connection((address, port), timeout=3):
+            return True
+    except OSError:
+        return False
+
+
+def _host_refused(port: int, host: str) -> tuple[int, str]:
+    import http.client
+
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+    try:
+        connection.request("GET", "/", headers={"Host": host})
+        response = connection.getresponse()
+        return response.status, response.read().decode("utf-8", "replace")
+    finally:
+        connection.close()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="the image is Linux, and this reaches the machine's own address")
+def test_in_a_container_it_listens_on_the_containers_own_address_and_nowhere_else_outside_one(tmp_path: Path) -> None:
+    own = _own_address()
+    if own is None:
+        pytest.skip("this machine has no address but a loopback one")
+    outside = Running(tmp_path / "outside")
+    try:
+        assert not _answers_on(own, outside.port), "outside a container, 127.0.0.1 alone"
+    finally:
+        outside.stop()
+    inside = Running(tmp_path / "inside", extra_env={"BAILEY_CONTAINER": "1"})
+    try:
+        assert _answers_on(own, inside.port), "in a container, the address a published port reaches"
+    finally:
+        inside.stop()
+
+
+def test_in_a_container_the_host_and_token_rules_hold_and_it_says_how_to_publish_its_port(tmp_path: Path) -> None:
+    bailey = Running(tmp_path / "home", extra_env={"BAILEY_CONTAINER": "1"})
+    try:
+        bailey.wait_for(re.compile(r"This is a container"))
+        printed = "".join(bailey.lines)
+        port = bailey.port
+        assert f"publish its port {port} to the same port on this computer's own address" in printed
+        assert f"docker run -p 127.0.0.1:{port}:{port}" in printed
+        assert "No browser could be opened" not in printed, "a container has no browser, so none is tried"
+        assert bailey.call("GET", "/", token=None)[0] == 200
+        assert bailey.call("GET", "/api/settings", token=None)[0] == 401, "the token is still asked for"
+        status, body = _host_refused(port, f"bailey.example:{port}")
+        assert status == 403 and "only on this computer's own address" in body, "the Host rule still holds"
+        assert _host_refused(port, f"localhost:{port}")[0] == 200
+    finally:
+        bailey.stop()
+
+
+def test_a_container_variable_other_than_1_changes_nothing(tmp_path: Path) -> None:
+    bailey = Running(tmp_path / "home", extra_env={"BAILEY_CONTAINER": "yes"})
+    try:
+        bailey.wait_for(re.compile(r"Press Ctrl\+C to stop\."))
+        assert "This is a container" not in "".join(bailey.lines)
+        assert "Press Ctrl+C to stop." in "".join(bailey.lines)
+    finally:
+        bailey.stop()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="the stand-in browser is a POSIX command line")
+@pytest.mark.parametrize("container", [False, True])
+def test_a_container_asks_for_no_browser_while_a_computer_does(tmp_path: Path, container: bool) -> None:
+    """`webbrowser` honours BROWSER, so a stand-in for the browser records whether one was asked for."""
+
+    marker = tmp_path / "browser-opened"
+    browser = f"{sys.executable} -c \"import pathlib, sys; pathlib.Path(sys.argv[1]).write_text('x')\" {marker} %s"
+    extra = {"BROWSER": browser, **({"BAILEY_CONTAINER": "1"} if container else {})}
+    bailey = Running(tmp_path / "home", extra_env=extra, command=[sys.executable, "-m", "bailey"])
+    try:
+        bailey.wait_for(re.compile(r"This is a container" if container else r"Press Ctrl\+C to stop\."))
+        deadline = time.monotonic() + 10
+        while not container and not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        time.sleep(0 if not container else 1.5)  # time enough for a browser that should not open
+        assert marker.exists() is not container
+    finally:
+        bailey.stop()

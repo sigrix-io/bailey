@@ -1,0 +1,3 @@
+# The image is built from a wheel and nothing else: the checkout never enters it.
+*
+!dist/*.whl

@@ -10,4 +10,4 @@ machine has what the assistant will need. It reads the local machine only and
 makes no network call.
 """
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"

@@ -109,3 +109,22 @@ jobs:
           said="$("$(dirname "$PUBLISHED_PYTHON")/bailey" --version)"
           echo "$said"
           test "$said" = "bailey $VERSION"
+
+      # What `uvx bailey` gives a person: the app opens, at the address it prints, with
+      # its token, and stops cleanly. The script is the one CI runs against the image;
+      # nothing else of the checkout is used, and the app runs from /tmp.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts/check_launch.py
+          sparse-checkout-cone-mode: false
+          path: checkout
+      - name: The published app opens on a clean machine
+        env:
+          PUBLISHED_PYTHON: ${{ steps.published.outputs.python }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          script="$GITHUB_WORKSPACE/checkout/scripts/check_launch.py"
+          cd /tmp
+          python3 "$script" --expect-version "$VERSION" \
+            --command "$(dirname "$PUBLISHED_PYTHON")/bailey" --no-browser --port 18123
