@@ -59,11 +59,37 @@ A client asks before a write. It treats as a write any tool missing from its
 server's declaration, and every tool of a server missing from `tools`, so a
 writer that declares nothing gets asked about everything rather than nothing.
 
+### Keys by name only
+
+A package names each key it needs and never carries one (Postern
+[§4.1.3](https://github.com/sigrix-io/postern/blob/main/SPEC.md#413-credentials)):
+`mcp.json` gives each variable in a server's `env` an empty string, which the
+person fills in. A reader also takes, as a name:
+
+- a reference to a variable: `${NAME}`, or VS Code's `${env:NAME}` and
+  `${input:id}`;
+- `__SIGRIX_SHARED_OAUTH__:<NAME>`, the placeholder a Sigrix download writes
+  for the variable its shared sign-in client fills.
+
+Bailey refuses a package that carries a value, as Postern §7 says a client
+should. That covers:
+
+- a value in any MCP configuration, or a literal in a remote server's
+  credential header;
+- an app's `.env` giving a key a value;
+- an app's credential entry with more than `env`, `purpose` and `signup_url`;
+- a provider key's shape in any text file.
+
+A skill's scripts (its `scripts/` folder, or any program in its folder) install
+only from the Sigrix store unless the person turns that on, and Bailey 0.1 reads
+a skill's `SKILL.md` and `references/` alone, so it runs none.
+
 A solution may carry apps, each a crew in its own folder, `apps/<name>/`: a
 Postern bundle with `postern.json` (its `describe`), `config/agents.yaml`,
 `config/tasks.yaml`, `requirements.txt`, and `ui.json` when its screen is
 composed. Format 0.1 has no member for apps; a reader finds them by folder. An
-app's `.env` is never read from a package. Bailey fills a text input an app
+app's `.env` is never read from a package, and one giving a key a value is
+refused. Bailey fills a text input an app
 declares under the key `passages` with what the assistant's documents hold for
 the run, and keeps it off the app's form.
 

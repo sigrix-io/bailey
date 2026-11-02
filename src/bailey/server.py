@@ -76,6 +76,15 @@ from bailey.apps import (
 )
 from bailey.conversations import notice_record, pending, shown, shown_text, to_history, to_records, user_record
 from bailey.core import load as load_core
+from bailey.install import (
+    MAX_FOLDER_REQUEST,
+    SCRIPTS_SETTING,
+    SCRIPTS_SETTING_LABEL,
+    Checked,
+    PendingInstalls,
+    check_package,
+    files_from_folder,
+)
 from bailey.keys import (
     FILE_NAME,
     EncryptedFileKeys,
@@ -122,13 +131,14 @@ from bailey.settings import (
 )
 from bailey.solutions import (
     DEFAULT_TEMPLATE,
+    MAX_ENTRIES,
+    MAX_FILE_BYTES,
     MAX_PACKAGE_BYTES,
+    ORIGIN_FILE,
     Assistant,
     SolutionRefused,
     assistant_from_form,
     form_of,
-    read_apps,
-    read_solution,
     template,
     template_ids,
     unzip_solution,
@@ -228,6 +238,8 @@ class AppState:
     environments: Environments | None = None
     #: Each open app's runner, started when its page opens.
     app_host: AppHost | None = None
+    #: Packages checked and shown on the install screen, waiting for the person's Install.
+    installs: PendingInstalls = field(default_factory=PendingInstalls)
 
 
 class Refusal(Exception):
@@ -355,6 +367,11 @@ def _settings_view(state: AppState) -> dict[str, Any]:
         "models": {entry.id: str(models.get(entry.id) or entry.default_model) for entry in PROVIDERS},
         "providers": providers,
         "keys": _keys_status(state.keys),
+        # Design decision 3: a skill with scripts installs only from the store unless this is on.
+        "installing": {
+            SCRIPTS_SETTING: bool(state.store.get_setting(SCRIPTS_SETTING)),
+            "label": SCRIPTS_SETTING_LABEL,
+        },
     }
 
 
@@ -416,6 +433,8 @@ def _assistants_view(state: AppState) -> dict[str, Any]:
                 "starters": list(record.get("starters") or []),
                 "servers": [server["name"] for server in record.get("servers") or []],
                 "apps": [app["title"] for app in record.get("apps") or []],
+                # Installed from a file, so nobody has checked it (design §4).
+                "unverified": record.get("origin") == ORIGIN_FILE,
             }
         )
     templates = []
@@ -755,7 +774,13 @@ def build_app(state: AppState) -> ASGIApp:
     @_answers
     async def read_status(request: Request) -> Response:
         return JSONResponse(
-            {"version": __version__, "data_folder": str(state.data_folder), "keys": _keys_status(state.keys)}
+            {
+                "version": __version__,
+                "data_folder": str(state.data_folder),
+                "keys": _keys_status(state.keys),
+                # What a package may hold, so the page refuses a folder too large before reading it all.
+                "package": {"files": MAX_ENTRIES, "bytes": MAX_PACKAGE_BYTES, "file_bytes": MAX_FILE_BYTES},
+            }
         )
 
     @_answers
@@ -765,19 +790,27 @@ def build_app(state: AppState) -> ASGIApp:
     @_answers
     async def write_settings(request: Request) -> Response:
         body = await _json_body(request)
-        chosen = provider(body.get("provider"))
-        address = clean_address(body.get("address")) if chosen.needs_address else None
+        scripts = body.get(SCRIPTS_SETTING)
+        if scripts is not None and not isinstance(scripts, bool):
+            raise Refusal(400, f"{SCRIPTS_SETTING} is true or false.")
+        # The provider is saved whenever it is sent, and asked for unless the request
+        # changes only the installing setting.
+        chosen = provider(body.get("provider")) if "provider" in body or scripts is None else None
+        address = clean_address(body.get("address")) if chosen and chosen.needs_address else None
         # Saved as given, one setting at a time; a chat names the setting still missing.
-        model = clean_model(body["model"]) if body.get("model") not in (None, "") else None
+        model = clean_model(body["model"]) if chosen and body.get("model") not in (None, "") else None
 
         def save() -> dict[str, Any]:
-            state.store.set_setting("provider", chosen.id)
+            if chosen is not None:
+                state.store.set_setting("provider", chosen.id)
             if address is not None:
                 state.store.set_setting("address", address)
-            if model is not None:
+            if chosen is not None and model is not None:
                 models = dict(state.store.get_setting("models") or {})
                 models[chosen.id] = model
                 state.store.set_setting("models", models)
+            if scripts is not None:
+                state.store.set_setting(SCRIPTS_SETTING, scripts)
             return _settings_view(state)
 
         return JSONResponse(await run_in_threadpool(save))
@@ -865,49 +898,96 @@ def build_app(state: AppState) -> ASGIApp:
 
         return JSONResponse(await run_in_threadpool(create))
 
+    async def _package(request: Request) -> dict[str, bytes]:
+        """A package as it arrives: a zip, or a folder's files, which the page sends as JSON."""
+
+        if request.headers.get("content-type", "").split(";")[0].strip() == "application/json":
+            body = await _json_body(request, MAX_FOLDER_REQUEST)
+            return files_from_folder(body.get("files"))
+        return unzip_solution(await _read_body(request, MAX_PACKAGE_BYTES))
+
+    def _check(files: Mapping[str, bytes]) -> Checked:
+        """Every check before anything is written (bailey.install), with the person's own settings."""
+
+        return check_package(
+            files,
+            scripts_allowed=bool(state.store.get_setting(SCRIPTS_SETTING)),
+            provider=str(state.store.get_setting("provider") or ""),
+        )
+
+    def _install(checked: Checked) -> dict[str, Any]:
+        """Write what was checked: the assistant, its apps' files and its reference files."""
+
+        made = checked.made
+        _ensure_an_assistant(state)
+        assistant_id = uuid.uuid4().hex
+        state.store.put_assistant(assistant_id, made.as_dict())
+        # A solution with tool servers runs programs on this computer, and the person
+        # is told so as it arrives (design §4). So does a solution with apps.
+        notices = [SANDBOX_NOTICE] if any(not server.remote for server in made.servers) else []
+        if made.apps:
+            write_apps(state.data_folder, assistant_id, made.apps)
+            notices.append(APPS_NOTICE)
+        if checked.app_left_out:
+            notices.append(
+                f"Left out of its apps: {', '.join(checked.app_left_out)}. A package's .env carries its seller's "
+                "settings or a listing's id, and Bailey gives an app your provider's key itself."
+            )
+        skills_left_out = [path for path in checked.left_out if path not in checked.app_left_out]
+        if skills_left_out:
+            notices.append(
+                f"Left out of its skills: {', '.join(skills_left_out)}. Bailey reads a skill's SKILL.md and its "
+                "references, and runs no skill's scripts."
+            )
+        # The seller's reference files are kept for search too (design §3.7), so a large
+        # one is found without its skill loaded. One Bailey cannot read stays with its skill.
+        for skill in (made.instructions, *made.skills):
+            for name, text in skill.references:
+                with contextlib.suppress(DocumentRefused):
+                    add_document(
+                        state.store,
+                        assistant_id,
+                        f"{skill.name}/references/{name}",
+                        text.encode("utf-8"),
+                        kind="reference",
+                    )
+        return {
+            "id": assistant_id,
+            "notice": " ".join(notices),
+            "asks_for_documents": bool(made.knowledge),
+            **_assistants_view(state),
+        }
+
+    @_answers
+    async def check_install(request: Request) -> Response:
+        """The install screen for a package that passes every check, held until Install; nothing is written."""
+
+        files = await _package(request)
+
+        def hold() -> dict[str, Any]:
+            checked = _check(files)
+            return {"id": state.installs.hold(checked), **checked.screen}
+
+        return JSONResponse(await run_in_threadpool(hold))
+
+    @_answers
+    async def confirm_install(request: Request) -> Response:
+        checked = state.installs.take(request.path_params["install_id"])
+        if checked is None:
+            raise Refusal(404, "That install is no longer waiting. Choose the solution again.")
+        return JSONResponse(await run_in_threadpool(_install, checked))
+
+    @_answers
+    async def cancel_install(request: Request) -> Response:
+        state.installs.drop(request.path_params["install_id"])
+        return JSONResponse({"cancelled": True})
+
     @_answers
     async def import_assistant(request: Request) -> Response:
-        data = await _read_body(request, MAX_PACKAGE_BYTES)
-        files = unzip_solution(data)
-        made = read_solution(files)
-        _, left_out = read_apps(files)
+        """Check and install in one step: the install screen's own checks, with no screen."""
 
-        def save() -> dict[str, Any]:
-            _ensure_an_assistant(state)
-            assistant_id = uuid.uuid4().hex
-            state.store.put_assistant(assistant_id, made.as_dict())
-            # A solution with tool servers runs programs on this computer, and the person
-            # is told so as it arrives (design §4). So does a solution with apps.
-            notices = [SANDBOX_NOTICE] if any(not server.remote for server in made.servers) else []
-            if made.apps:
-                write_apps(state.data_folder, assistant_id, made.apps)
-                notices.append(APPS_NOTICE)
-            if left_out:
-                notices.append(
-                    f"Left out of its apps: {', '.join(left_out)}. A package's .env would carry its seller's keys "
-                    "or a listing's id, and Bailey gives an app your provider's key itself."
-                )
-            notice = " ".join(notices)
-            # The seller's reference files are kept for search too (design §3.7), so a large
-            # one is found without its skill loaded. One Bailey cannot read stays with its skill.
-            for skill in (made.instructions, *made.skills):
-                for name, text in skill.references:
-                    with contextlib.suppress(DocumentRefused):
-                        add_document(
-                            state.store,
-                            assistant_id,
-                            f"{skill.name}/references/{name}",
-                            text.encode("utf-8"),
-                            kind="reference",
-                        )
-            return {
-                "id": assistant_id,
-                "notice": notice,
-                "asks_for_documents": bool(made.knowledge),
-                **_assistants_view(state),
-            }
-
-        return JSONResponse(await run_in_threadpool(save))
+        files = await _package(request)
+        return JSONResponse(await run_in_threadpool(lambda: _install(_check(files))))
 
     @_answers
     async def read_assistant(request: Request) -> Response:
@@ -1515,6 +1595,9 @@ def build_app(state: AppState) -> ASGIApp:
             Route("/api/assistants", list_assistants, methods=["GET"]),
             Route("/api/assistants", create_assistant, methods=["POST"]),
             Route("/api/assistants/import", import_assistant, methods=["POST"]),
+            Route("/api/installs", check_install, methods=["POST"]),
+            Route("/api/installs/{install_id}", confirm_install, methods=["POST"]),
+            Route("/api/installs/{install_id}", cancel_install, methods=["DELETE"]),
             Route("/api/assistants/{assistant_id}", read_assistant, methods=["GET"]),
             Route("/api/assistants/{assistant_id}", write_assistant, methods=["PUT"]),
             Route("/api/assistants/{assistant_id}", delete_assistant, methods=["DELETE"]),

@@ -81,11 +81,28 @@
             <label for="template-pick">New from a template</label>
             <select id="template-pick"></select>
             <button type="button" id="create-assistant">Create</button>
-            <label class="file-button" for="import-file">Import a solution (.zip)</label>
-            <input type="file" id="import-file" accept=".zip,application/zip" class="sr-only">
+          </div>
+          <div class="actions install-from">
+            <span>Install a solution</span>
+            <input type="file" id="install-zip" accept=".zip,application/zip" class="sr-only">
+            <label class="file-button" for="install-zip">From a ZIP file</label>
+            <input type="file" id="install-folder" webkitdirectory class="sr-only">
+            <label class="file-button" for="install-folder">From a folder</label>
           </div>
           <p class="status" id="assistants-status" role="status"></p>
         </div>
+
+        <section class="card install-card" id="install-card" hidden aria-labelledby="install-title">
+          <h2 id="install-title">Install</h2>
+          <p id="install-description"></p>
+          <div id="install-notices"></div>
+          <div id="install-sections"></div>
+          <div class="actions">
+            <button type="button" id="install-confirm">Install</button>
+            <button type="button" class="quiet" id="install-cancel">Cancel</button>
+          </div>
+          <p class="status" id="install-status" role="status"></p>
+        </section>
 
         <form class="card" id="assistant-form" novalidate hidden>
           <h2 id="assistant-form-title">Edit</h2>
@@ -208,6 +225,16 @@
           </form>
           <p class="hint" id="key-help" hidden><a id="key-link" target="_blank" rel="noopener noreferrer">Where to get a key</a></p>
           <p class="status" id="key-status" role="status"></p>
+        </section>
+
+        <section class="card" id="installing-card" aria-labelledby="installing-title">
+          <h2 id="installing-title">Installing solutions</h2>
+          <div class="field checkbox-field">
+            <input id="skills-with-scripts" type="checkbox">
+            <label for="skills-with-scripts" id="skills-with-scripts-label"></label>
+            <p class="hint">A skill's scripts are programs. Bailey installs a skill that carries them only from the Sigrix store unless this is on, and leaves the scripts out either way, since it runs none.</p>
+          </div>
+          <p class="status" id="installing-status" role="status"></p>
         </section>
 
         <section class="card" id="locked-card" aria-labelledby="locked-title" hidden>

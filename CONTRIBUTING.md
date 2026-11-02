@@ -48,6 +48,17 @@ tools and their documents) is on `main`.
   update, and the no-telemetry test records the runner and its crew to hold it so.
 - CrewAI, or anything an app needs, installed with Bailey. An app runs in an
   environment of its own, built from its own requirements once the person says yes.
+- Anything written before the install screen's Install. `POST /api/installs` checks
+  a package and holds it; only `POST /api/installs/{id}` writes, and it writes what
+  was held. The one-step `POST /api/assistants/import` runs the same checks.
+- A package installed with a key's value in it. `bailey.install.check_credentials`
+  refuses one wherever the format names a key and wherever a provider key's shape
+  appears, and names the file without quoting the key. Its shapes are Sigrix's own
+  (`src/services/listing_secret_scan.py` in sigrix-io/sigrix), less the two that only
+  a person weighing them could keep (a token and a key's banner): a shape added there
+  is added here, with a case in `tests/test_install.py`.
+- A skill's scripts run, or a skill carrying them installed from a file while
+  "Install skills that carry scripts from a file" is off.
 - An edit to `src/bailey/web/gatehouse/`. It is a release of
   `@sigrix-io/gatehouse`; change Gatehouse upstream and run
   `python scripts/vendor_gatehouse.py <version>`.
