@@ -8,6 +8,29 @@ described in `VERSIONING.md`.
 
 ### Added
 
+- `bailey check <solution>` (story S11 of 0.1) runs a solution headless, with no browser. It runs
+  the solution's examples, plus a grounding pair for each knowledge slot that has a sample, in a
+  Bailey of its own that keeps nothing. It drives the app's own routes in-process, so the
+  solution goes through the same install checks, agent core, skills, documents and tool host as
+  it does in the app. Each case passes or fails, and a failing case says why:
+  - an example's answer is held to what the example's own reply shows: passages quoted word for
+    word, citations, or saying the documents do not cover the question;
+  - a question that a slot's sample answers must cite or quote that sample;
+  - a question about a made-up name must be said not to be covered.
+
+  A tool that changes something is refused, never run, and the case says so. The check runs on
+  the provider, model and key in Bailey's Settings, which it reads without opening the store as
+  the app does, so nothing is migrated or written. `--provider`, `--model` and `--address` set
+  them instead, with the key in `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. A key in
+  `OPENAI_API_KEY` never goes to an OpenAI-compatible server. A tool server's variables come from
+  the environment by name.
+
+  It prints each case as it is judged, then the tokens the run took and an estimate of what they
+  cost. `--json` prints the whole report, with the provider and model. It exits 0 when every case
+  passes, 1 when one fails, and 2 when it cannot run, a provider that refuses the key or cannot
+  be reached included.
+- A solution's `examples` are read, kept with the assistant and written back on export. Bailey
+  refuses an example as the schema does: one with no input, or an output that is not text.
 - Installing a solution from a file (story S10 of 0.1). The Assistants view takes a ZIP
   or a folder, which is what Safari makes of a download by default, and a folder meets a
   ZIP's limits and path rules. Before anything is written, Bailey checks the package and

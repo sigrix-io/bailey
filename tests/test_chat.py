@@ -205,7 +205,9 @@ def test_a_refused_key_ends_the_stream_with_a_sentence_and_leaves_a_notice(clien
     events = _events(
         client.post(f"/api/conversations/{conversation_id}/messages", headers=AUTH, json={"text": "Hi"}).text
     )
-    assert events == [{"type": "error", "message": "Anthropic refused the key (401). Check the key in Settings."}]
+    assert events == [
+        {"type": "error", "message": "Anthropic refused the key (401). Check the key in Settings.", "cause": "provider"}
+    ]
     messages = client.get(f"/api/conversations/{conversation_id}", headers=AUTH).json()["messages"]
     assert messages[-1] == {"role": "notice", "text": events[0]["message"]}
 

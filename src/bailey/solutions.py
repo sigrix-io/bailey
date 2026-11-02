@@ -246,6 +246,25 @@ class KnowledgeSlot:
 
 
 @dataclass(frozen=True)
+class Example:
+    """An input the assistant is meant to handle, and the answer of the kind it should give, when its writer gave one.
+
+    ``bailey check`` runs each one (:mod:`bailey.check`); the answer is a model of the
+    reply, not its text.
+    """
+
+    input: str
+    output: str = ""
+
+    def as_dict(self) -> dict[str, str]:
+        return {"input": self.input, **({"output": self.output} if self.output else {})}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Example:
+        return cls(input=str(data["input"]), output=str(data.get("output") or ""))
+
+
+@dataclass(frozen=True)
 class Sample:
     """A slot's sample: a made-up document of the kind the slot asks for, carried as text."""
 
@@ -308,6 +327,7 @@ class Assistant:
     knowledge: tuple[KnowledgeSlot, ...] = field(default_factory=tuple)
     samples: tuple[Sample, ...] = field(default_factory=tuple)
     apps: tuple[App, ...] = field(default_factory=tuple)
+    examples: tuple[Example, ...] = field(default_factory=tuple)
     #: Bailey's own setting, not the solution's: answer only from the documents, and say
     #: so rather than answer from what the model knows when they do not cover a question.
     grounded_only: bool = False
@@ -351,6 +371,7 @@ class Assistant:
             "knowledge": [slot.as_dict() for slot in self.knowledge],
             "samples": [sample.as_dict() for sample in self.samples],
             "apps": [app.as_dict() for app in self.apps],
+            "examples": [example.as_dict() for example in self.examples],
             "grounded_only": self.grounded_only,
             "origin": self.origin,
         }
@@ -371,6 +392,7 @@ class Assistant:
             knowledge=tuple(KnowledgeSlot.from_dict(slot) for slot in data.get("knowledge") or ()),
             samples=tuple(Sample.from_dict(sample) for sample in data.get("samples") or ()),
             apps=tuple(App.from_dict(app) for app in data.get("apps") or ()),
+            examples=tuple(Example.from_dict(example) for example in data.get("examples") or ()),
             grounded_only=bool(data.get("grounded_only")),
             origin=str(data.get("origin") or ""),
         )
@@ -806,6 +828,7 @@ def read_solution(files: Mapping[str, bytes]) -> Assistant:
         skills.append(skill)
     knowledge, samples = _read_knowledge(files, document, document_path)
     apps, _ = read_apps(files)
+    examples = _read_examples(document, document_path)
     return Assistant(
         name=name,
         title=title.strip(),
@@ -818,7 +841,28 @@ def read_solution(files: Mapping[str, bytes]) -> Assistant:
         knowledge=knowledge,
         samples=samples,
         apps=apps,
+        examples=examples,
     )
+
+
+def _read_examples(document: Mapping[str, Any], document_path: str) -> tuple[Example, ...]:
+    """The inputs the solution is meant to handle, each with the answer its writer gave, if any."""
+
+    entries = document.get("examples") or []
+    if not isinstance(entries, list):
+        raise SolutionRefused(f"{document_path}'s examples should be a list, each with an input.")
+    examples: list[Example] = []
+    for index, entry in enumerate(entries, start=1):
+        where = f"{document_path}, example {index}"
+        given = entry.get("input") if isinstance(entry, dict) else None
+        # As the schema has it (minLength 1), so a document it accepts is one Bailey reads.
+        if not isinstance(given, str) or not given:
+            raise SolutionRefused(f"{where} has no input: what the person sends.")
+        output = entry.get("output") or ""
+        if not isinstance(output, str):
+            raise SolutionRefused(f"{where}'s output should be text.")
+        examples.append(Example(input=given, output=output))
+    return tuple(examples)
 
 
 def safe_member(name: str) -> str | None:
@@ -975,6 +1019,7 @@ def assistant_from_form(form: Mapping[str, Any], previous: Assistant) -> Assista
         knowledge=previous.knowledge,
         samples=previous.samples,
         apps=previous.apps,
+        examples=previous.examples,
         grounded_only=_flag(form, "grounded_only", previous.grounded_only),
         origin=previous.origin,
     )
@@ -1049,6 +1094,8 @@ def solution_files(assistant: Assistant) -> dict[str, bytes]:
         document["starters"] = list(assistant.starters)
     if assistant.skills:
         document["skills"] = [{"name": skill.name, "path": put_skill(skill)} for skill in assistant.skills]
+    if assistant.examples:
+        document["examples"] = [example.as_dict() for example in assistant.examples]
     if assistant.knowledge:
         document["knowledge"] = [
             {key: value for key, value in slot.as_dict().items() if key != "required" or value}

@@ -456,6 +456,9 @@ async def answer(
         yield {
             "type": "error",
             "message": explain_failure(error, connection),
+            # The provider's own failure (a refused key, an unknown model, no answer at all),
+            # which no change to the assistant mends, told apart from the run's.
+            "cause": "provider" if isinstance(error, ModelAPIError) else "run",
             "messages": _settled(_messages_so_far(events)),
             "servers": servers,
         }

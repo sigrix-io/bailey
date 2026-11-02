@@ -17,7 +17,10 @@ draft tool returned, so a test can tell whether a "no" reached the model; asked 
 "at once", it makes both calls in one reply, as models do. Given documents, it answers as
 a grounded model should: from the passage that shares the question's words, citing its
 number, or by saying the documents do not cover it; offered ``search_knowledge``, it
-searches first, in its own words. Every request is kept in ``REQUESTS``.
+searches first, in its own words. Given a reply to replay for a message (``REPLAYS``), it
+answers as a model following the skill the reply follows: it loads that skill, then gives
+the reply; with that skill gone, it gives the reply without what the skill grounds (its
+sources and its not-covered notes, :func:`ungrounded`). Every request is kept in ``REQUESTS``.
 
 This proves the plumbing, never how well a model chooses a skill. The live run against
 the real providers is the owner's step before S6 merges (S1's ruling, guard 1).
@@ -117,24 +120,68 @@ NOT_COVERED = "The documents do not cover that."
 
 _WORDS = re.compile(r"[a-z]+")
 _PASSAGE = re.compile(r"\[P(\d+)\]\s*(.*?)(?=\n\[P\d+\]|\n####|\n###|\Z)", re.S)
+_NUMBERED = re.compile(r"\[P(\d+)\]\s*(.*)")
+#: Words that name no subject, the framing of a question about a document among them.
 _STOP = frozenset(
     "a an and are as at be but by can could do does for from had has have how i if in is it its me my no not of "
     "on or our so than that the their them then there these they this to too us was we what when where which "
-    "who why will with would you your did like".split()
+    "who why will with would you your did like about say says document documents".split()
 )
+
+#: A passage as the scripted model reads it: its number, the document and section it is in, and its text.
+Passage = tuple[str, str, str]
 
 
 def _stems(text: str) -> set[str]:
     return {word[:5] for word in _WORDS.findall(text.lower()) if word not in _STOP}
 
 
-def _grounded(question: str, passages: list[tuple[str, str]]) -> Turn:
-    """The answer a grounded model gives: from the passage sharing the most of the question's words, or none."""
+def _searched(result: str) -> list[Passage]:
+    """The passages a search returned, each opening with the line that says where it is from."""
+    return [(number, *_split_where(text)) for number, text in _PASSAGE.findall(result)]
+
+
+def _split_where(text: str) -> tuple[str, str]:
+    where, _, body = text.partition("\n")
+    return where, body
+
+
+def _sent_whole(section: str) -> list[Passage]:
+    """The passages of documents sent whole, each with its document's name and its section's heading.
+
+    Read line by line, a passage being a line that opens with its number, so the grounding
+    clause before them, which shows a citation mid-sentence as an example, is never one.
+    """
+    passages: list[Passage] = []
+    document = heading = ""
+    for line in section.splitlines():
+        if line.startswith("### Document: "):
+            document, heading = line.removeprefix("### Document: "), ""
+        elif line.startswith("#### "):
+            heading = line.removeprefix("#### ")
+        elif (numbered := _NUMBERED.fullmatch(line)) is not None:
+            passages.append((numbered[1], f"{document} › {heading}", numbered[2]))
+        elif passages and line.strip():
+            number, where, body = passages[-1]
+            passages[-1] = (number, where, f"{body}\n{line}")
+    return passages
+
+
+def _grounded(question: str, passages: list[Passage]) -> Turn:
+    """The answer a grounded model gives: from the passage sharing the most of the question's words, or none.
+
+    A passage is matched with the document and the section it is in, as a model reads it,
+    and answered from its own text.
+    """
     wanted = _stems(question)
-    best = max(passages, key=lambda passage: len(wanted & _stems(passage[1])), default=None)
-    if best is None or len(wanted & _stems(best[1])) < 2:
+
+    def shared(passage: Passage) -> int:
+        return len(wanted & _stems(f"{passage[1]} {passage[2]}"))
+
+    best = max(passages, key=shared, default=None)
+    if best is None or shared(best) < 2:
         return Turn(NOT_COVERED)
-    first = " ".join(best[1].split()[:14])
+    first = " ".join(best[2].split()[:14])
     return Turn(f"From the documents: {first} [P{best[0]}]")
 
 
@@ -145,12 +192,47 @@ def _knowledge_turn(conversation: Conversation, asked: str) -> Turn | None:
         done = dict(conversation.turn_results)
         if "search_knowledge" not in done:
             return Turn("", [Call(_new_id("call"), "search_knowledge", {"query": " ".join(sorted(_stems(asked)))})])
-        return _grounded(asked, _PASSAGE.findall(done["search_knowledge"]))
-    return _grounded(asked, _PASSAGE.findall(conversation.system.split("## Your documents", 1)[1]))
+        return _grounded(asked, _searched(done["search_knowledge"]))
+    return _grounded(asked, _sent_whole(conversation.system.split("## Your documents", 1)[1]))
 
 
 #: The reply the scripted model drafts with the mailbox's write tool.
 DRAFT_BODY = "Sorry about the seam. We will refund order 5531 today."
+
+
+@dataclass(frozen=True)
+class Replay:
+    """A message the scripted model answers with a reply it is given, as a model following a skill would."""
+
+    message: str
+    reply: str
+    #: The skill the reply follows: loaded first while it is listed, and missed when it is not.
+    follows: str
+
+
+#: The replies to replay, which a test fills and empties; none by default.
+REPLAYS: list[Replay] = []
+
+
+def ungrounded(reply: str) -> str:
+    """A reply as written without the skill that grounds it: no sources after it, nothing noted as not covered."""
+
+    kept: list[str] = []
+    for line in reply.splitlines():
+        if line.strip().startswith("Sources:"):
+            break
+        if not line.strip().startswith("NOT COVERED:"):
+            kept.append(line)
+    return "\n".join(kept).strip()
+
+
+def _replay_turn(conversation: Conversation, replay: Replay) -> Turn:
+    listed = re.search(rf"^- `{re.escape(replay.follows)}`:", conversation.system, re.M) is not None
+    if not listed or "load_skill" not in conversation.tools:
+        return Turn(ungrounded(replay.reply))
+    if "load_skill" not in dict(conversation.turn_results):
+        return Turn("", [Call(_new_id("call"), "load_skill", {"name": replay.follows})])
+    return Turn(replay.reply)
 
 
 def _mailbox_turn(conversation: Conversation, asked: str) -> Turn:
@@ -171,8 +253,12 @@ def next_turn(conversation: Conversation) -> Turn:
     asked = conversation.user[-1].lower() if conversation.user else ""
     wanted = next((skill for word, skill in SKILL_WORDS if word in asked), None)
     turn: Turn
-    knowledge = _knowledge_turn(conversation, asked)
-    if knowledge is not None:
+    said = conversation.user[-1].strip() if conversation.user else ""
+    replay = next((replay for replay in REPLAYS if replay.message.strip() == said), None)
+    knowledge = _knowledge_turn(conversation, asked) if replay is None else None
+    if replay is not None:
+        turn = _replay_turn(conversation, replay)
+    elif knowledge is not None:
         turn = knowledge
     elif "reply" in asked and {"search_threads", "create_draft"} <= set(conversation.tools):
         turn = _mailbox_turn(conversation, asked)

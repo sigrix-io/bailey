@@ -93,6 +93,16 @@ or `BAILEY_TEST_REAL_EMBEDDINGS=1` to let the test fetch it; CI does the second
 on one job. A MarkItDown, fastembed or onnxruntime bump lands only once
 `tests/test_knowledge_contract.py` and that test pass on it.
 
+`bailey check` is tested on the fixture solution `tests/fixtures/grounded-replies`,
+shaped like the pilot, Customer email replies: its examples quote its samples, and
+a skill of its own grounds them. The emulator's replay model (`REPLAYS`) gives each
+example's reply, loading the skill the reply follows first. When that skill is
+gone, it gives the reply without its sources and its not-covered notes. So a test
+sees the check pass, and then fail, naming each case. That proves the check, not a
+model; the run against a real provider is the owner's. Set `BAILEY_TEST_PILOT` to a
+sigrix checkout's `solutions/customer-email-replies/package` to run the same tests
+on the pilot.
+
 Apps are tested on the fixture solution `tests/fixtures/weekly-digest` with the
 real runner, `sigrix-runtime`, and `tests/stand_ins/crewai` in place of CrewAI.
 `tests/app_environments.py` makes an app's environment ready without a download,

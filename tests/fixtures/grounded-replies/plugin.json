@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "grounded-replies",
+  "description": "Drafts replies to a small bookshop's customer email, quoting the shop's documents for every claim.",
+  "extensions": {
+    "org.sigrix": {
+      "assistant": "assistant.json"
+    }
+  }
+}

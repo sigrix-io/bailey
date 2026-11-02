@@ -58,7 +58,7 @@ A solution names the keys it needs and never carries one: Bailey refuses a packa
 
 ## What comes next
 
-- **0.1: the app.** Chat, assistants, skills loaded when needed, tools with approval, knowledge from your own documents with citations, apps, and installing a solution from a file.
+- **0.1: the app.** Chat, assistants, skills loaded when needed, tools with approval, knowledge from your own documents with citations, apps, installing a solution from a file, and `bailey check`, which runs a solution's examples with no browser.
 - **0.2: the store.** Sign in, browse, install and update solutions, and publish your own.
 
 ## Where it fits
@@ -83,6 +83,14 @@ something, documents that answers cite, sent whole or searched on this computer,
 Gatehouse, assistants made from templates, edited and exported, solutions installed from a ZIP or a folder after an
 install screen that says what each needs, a Sigrix download among them, and settings with your provider's key.
 `CONTRIBUTING.md` says how to keep a development setup apart from your own.
+
+`bailey check <solution>` runs a solution, a folder or a ZIP, with no browser, in a Bailey of its own that
+keeps nothing. It runs the solution's examples, and for each document the solution asks for, one question its
+sample answers and one that no document answers. It says which cases pass, and why the others fail. It runs on
+the provider, model and key in your settings, or on `--provider` and `--model` with the key in
+`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. A tool that changes something is refused, never run. It exits 1 when a
+case fails and 2 when it cannot run, and `--json` prints the report, provider and model included, for a script
+or a CI job.
 
 Searching a large collection of documents takes a model of about 90 MB, which Bailey downloads from Hugging Face
 once you say yes to it. On a computer that cannot reach Hugging Face, put the files of

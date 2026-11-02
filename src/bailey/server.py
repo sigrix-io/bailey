@@ -1443,7 +1443,7 @@ def build_app(state: AppState) -> ASGIApp:
                         await run_in_threadpool(
                             state.store.append_messages, conversation_id, [notice_record(str(failure))]
                         )
-                        yield _event({"type": "error", "message": str(failure)})
+                        yield _event({"type": "error", "message": str(failure), "cause": "tools"})
                         return
                 async for event in answer(
                     connection,
@@ -1477,7 +1477,7 @@ def build_app(state: AppState) -> ASGIApp:
                         if environments:
                             # A server may have stopped answering; the next message starts it again.
                             await state.tools.stop(assistant_id)
-                        yield _event({"type": "error", "message": event["message"]})
+                        yield _event({"type": "error", "message": event["message"], "cause": event["cause"]})
                     else:
                         yield _event(event)
             finally:
