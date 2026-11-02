@@ -1,0 +1,51 @@
+{
+  "format_version": "0.1",
+  "name": "grounded-replies",
+  "title": "Grounded replies",
+  "description": "Drafts replies to a small bookshop's customer email, quoting the shop's documents for every claim.",
+  "instructions": "skills/grounded-replies/SKILL.md",
+  "skills": [
+    {
+      "name": "reply-style",
+      "path": "skills/reply-style/SKILL.md"
+    },
+    {
+      "name": "quote-sources",
+      "path": "skills/quote-sources/SKILL.md"
+    }
+  ],
+  "examples": [
+    {
+      "input": "Customer email:\nHello, the novel I ordered arrived last week, but I did not enjoy it. Can I send it back?\nAnnie",
+      "output": "Hi Annie,\n\nYes. You can send it back within 30 days of delivery, in the condition it arrived, for any reason. Reply to your order confirmation and we will send you a prepaid return label. We refund your original payment method within 5 business days of the book reaching us.\n\nThe team at Harbour Lane Books\n\nSources:\n- policies, \"Returns\": \"You can return a book in the condition it arrived within 30 days of delivery, for any reason.\"\n- policies, \"Returns\": \"Reply to your order confirmation and we send a prepaid return label.\"\n- policies, \"Returns\": \"We refund the original payment method within 5 business days of receiving the book.\""
+    },
+    {
+      "input": "Customer email:\nHi, how long does delivery take, and what does it cost? I live in Leeds.\nOmar",
+      "output": "Hi Omar,\n\nOrders leave our shop within 2 business days, and UK standard delivery then takes 2 to 4 business days. It costs £3.50, and it is free on orders over £30. We email you a tracking link as soon as your order ships.\n\nThe team at Harbour Lane Books\n\nSources:\n- policies, \"Shipping\": \"Orders ship within 2 business days from our shop in Bristol.\"\n- policies, \"Shipping\": \"UK standard delivery costs £3.50 and takes 2 to 4 business days.\"\n- policies, \"Shipping\": \"We email a tracking link as soon as an order ships.\""
+    },
+    {
+      "input": "Customer email:\nHello, do you gift wrap? I would like to send a book to my sister for her birthday.\nKeiko",
+      "output": "NOT COVERED: The documents do not mention gift wrapping.\n\nHi Keiko,\n\nThank you for thinking of us for your sister's birthday. Someone from the team will reply to you about gift wrapping.\n\nThe team at Harbour Lane Books\n\nSources: none"
+    }
+  ],
+  "knowledge": [
+    {
+      "name": "policies",
+      "description": "Your shipping, returns and refund policies, as you show them to customers.",
+      "accepts": [
+        "md",
+        "txt",
+        "pdf"
+      ],
+      "required": true
+    },
+    {
+      "name": "faq",
+      "description": "The questions customers ask most, with your answers.",
+      "accepts": [
+        "md",
+        "txt"
+      ]
+    }
+  ]
+}

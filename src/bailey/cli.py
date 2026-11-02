@@ -1,4 +1,4 @@
-"""``bailey``: the command line. On its own it starts the app; ``bailey doctor`` checks the machine."""
+"""``bailey``: the command line. On its own it starts the app; ``bailey doctor`` checks the machine, and ``bailey check`` a solution."""
 
 from __future__ import annotations
 
@@ -43,6 +43,21 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     doctor.add_argument("--json", action="store_true", help="print the checks as JSON")
+    check = commands.add_parser(
+        "check",
+        help="run a solution's examples headless, on your AI provider",
+        description=(
+            "Run a solution's examples, and a grounding pair for each document it asks for, in a Bailey of its own "
+            "that keeps nothing. Each case passes or fails, saying why; a tool that changes something is refused, "
+            "never run. Runs on the provider, model and key in Bailey's Settings, or on --provider and --model "
+            "with the key in ANTHROPIC_API_KEY or OPENAI_API_KEY. Exits 1 when a case fails, 2 when it cannot run."
+        ),
+    )
+    check.add_argument("solution", help="the solution: a folder, or a ZIP file")
+    check.add_argument("--json", action="store_true", help="print the result as JSON")
+    check.add_argument("--provider", help="the AI provider to run on: anthropic, openai or openai-compatible")
+    check.add_argument("--model", help="the model to run on")
+    check.add_argument("--address", help="an OpenAI-compatible server's address")
     return parser
 
 
@@ -55,6 +70,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             sys.stdout.write(render(checks, version=__version__))
         return 0 if ready(checks) else 1
+    if args.command == "check":
+        from bailey.check import main as check
+
+        return check(
+            args.solution, as_json=args.json, provider_id=args.provider, model=args.model, address=args.address
+        )
     # Imported here, so `bailey doctor` and `bailey --version` load none of the server.
     from bailey.server import serve
 

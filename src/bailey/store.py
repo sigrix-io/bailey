@@ -82,6 +82,36 @@ class NewerStore(Exception):
         self.version = version
 
 
+def read_settings(path: Path) -> dict[str, Any]:
+    """A store's settings, for a command that only looks: read without opening the store as the app opens it.
+
+    Read-only, so nothing is migrated or written, and a store from another version of
+    Bailey is read as it stands. A store that cannot be read gives no settings.
+    """
+
+    # A store the app has open keeps its write-ahead log beside it, which a read must go
+    # through to see the latest values. One with no log is whole in its file, and is read as
+    # it stands, so that this read leaves no log of its own behind.
+    options = "mode=ro" if path.with_name(path.name + "-wal").exists() else "mode=ro&immutable=1"
+    try:
+        connection = sqlite3.connect(f"{path.resolve().as_uri()}?{options}", uri=True)
+    except sqlite3.Error:
+        return {}
+    try:
+        rows = connection.execute("SELECT name, value FROM settings").fetchall()
+    except sqlite3.Error:
+        return {}
+    finally:
+        connection.close()
+    settings: dict[str, Any] = {}
+    for name, value in rows:
+        try:
+            settings[str(name)] = json.loads(value)
+        except (TypeError, ValueError):
+            continue
+    return settings
+
+
 class Store:
     """The open store. One connection, shared by the server's worker threads under a lock."""
 

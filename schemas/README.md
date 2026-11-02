@@ -93,6 +93,16 @@ refused. Bailey fills a text input an app
 declares under the key `passages` with what the assistant's documents hold for
 the run, and keeps it off the app's form.
 
+`bailey check` runs each example, and holds its answer to what the example's
+own reply shows, never to its wording:
+
+- passages quoted word for word, four words or more;
+- a citation such as `[P12]`;
+- saying that the documents do not cover the question.
+
+So write a reply the way the solution should answer, quoting what it relies on.
+An example with no reply is held only to getting an answer.
+
 A knowledge slot may come with a made-up example of the document it asks for,
 `samples/<name>.<extension>`, named by the slot and in one of the types it
 accepts, so a person can try the solution before giving their own. Bailey
