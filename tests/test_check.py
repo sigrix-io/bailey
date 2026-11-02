@@ -399,7 +399,8 @@ def test_the_output_survives_a_pipe_that_cannot_encode_every_character(monkeypat
     from bailey import check
 
     written = io.BytesIO()
-    pipe = io.TextIOWrapper(written, encoding="cp1252")
+    # newline="\n": the test is about the encoding, and Windows would otherwise write "\r\n".
+    pipe = io.TextIOWrapper(written, encoding="cp1252", newline="\n")
     monkeypatch.setattr(sys, "stdout", pipe)
     check._show("PASS  Example 1: Customer email: Hi 👋, ça va? 你好…\n")
     pipe.flush()
