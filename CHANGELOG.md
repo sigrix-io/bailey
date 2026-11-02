@@ -8,14 +8,51 @@ described in `VERSIONING.md`.
 
 ### Added
 
+- Installing a solution from a file (story S10 of 0.1). The Assistants view takes a ZIP
+  or a folder, which is what Safari makes of a download by default, and a folder meets a
+  ZIP's limits and path rules. Before anything is written, Bailey checks the package and
+  shows its install screen:
+  - what the solution does;
+  - each key, with what reads it; an app's key also has its purpose and where to get one,
+    from its `postern.json`;
+  - each knowledge slot;
+  - the tools, with the write tools marked;
+  - the apps;
+  - what it leaves out.
+
+  A server's keys can be entered right there, and go to the keychain. Install writes what
+  was checked and shown, which Bailey holds for half an hour; Cancel writes nothing.
+- A download from Sigrix installs. Today's is already a solution. One from before
+  downloads carried `assistant.json` is converted on import: its `SKILL.md` becomes the
+  instructions and its `.mcp.json` the servers, and every tool asks before it runs.
+- No credential value anywhere in a package (Postern §4.1.3 and §7). A package is refused
+  when:
+  - an MCP configuration gives a variable a value, or a remote server's credential header
+    a literal;
+  - an app's `.env` gives a key a value;
+  - an app's credential entry carries more than `env`, `purpose` and `signup_url`;
+  - any text file carries one of the provider key shapes Sigrix's own scan knows.
+
+  The refusal names the file and the kind of key, and quotes none of it. A variable left
+  blank, a reference to one, and the placeholder a Sigrix download writes for its shared
+  sign-in client are names, not values.
+- A skill carrying scripts installs only from the Sigrix store, unless the person turns on
+  "Install skills that carry scripts from a file" in Settings (design decision 3). With it
+  on, the skill installs without its scripts, which Bailey 0.1 never runs.
+- Everything installed from a file is marked unverified, on the install screen and in the
+  assistant list, and stays so through edits. Templates are Bailey's own and are not
+  marked.
+- A ZIP carrying two files under one name is refused, since different unzippers read
+  different copies.
 - Apps (story S9 of 0.1). A solution's app is a crew in `apps/<name>/`, a Postern bundle:
   `postern.json`, `ui.json` when the seller composed one, `config/agents.yaml` and
   `config/tasks.yaml`, and `requirements.txt`. Format 0.1 has no member for apps and
   refuses one it does not know, so Bailey finds an app by its folder, as it finds a
-  sample. An import keeps each app's files in the data folder, never a `.env` (which
-  would carry a seller's keys or a listing's id) or what a runner wrote, and says that
-  an app is its seller's program running on this computer. An export writes the apps
-  back, and deleting the assistant removes them.
+  sample. An import keeps each app's files in the data folder, never a `.env` or what a
+  runner wrote: a `.env` giving a key a value is refused (story S10), and one holding a
+  listing's id or settings is left out. The import says that an app is its seller's
+  program running on this computer. An export writes the apps back, and deleting the
+  assistant removes them.
 - CrewAI is installed per app, never with Bailey. `sigrix-runtime[crewai]` resolves to
   148 packages and pins `openai` 2.x and `mcp` 1.x against Bailey's own 3.31.0 and 2.3.0.
   Each app runs in a virtual environment of its own in the data folder, built from its
@@ -137,8 +174,9 @@ described in `VERSIONING.md`.
   kept once for every such server. The import and the panel say plainly that Bailey does
   not sandbox a server beyond its environment.
 - The solution format: an import reads `mcp.json` and `assistant.json`'s `tools`, keeping
-  each variable's name and never its value, and an export writes them back, with an
-  empty value for each variable. The store's third migration keeps the "always" grants.
+  each variable's name and refusing a package that gives one a value (story S10), and an
+  export writes them back, with an empty value for each variable. The store's third
+  migration keeps the "always" grants.
 - The contract tests for tools, on the provider emulator and a stdio mailbox server: the
   read runs and the write asks, on all three protocols; a yes runs it and a no reaches
   the model; a paused run is read back from the store and resumed by a new server

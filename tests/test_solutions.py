@@ -398,14 +398,29 @@ def test_a_write_declared_outside_its_tools_still_asks_and_exports_valid() -> No
     jsonschema.validate(json.loads(solution_files(read)["assistant.json"]), SCHEMA)
 
 
-def test_a_value_a_package_gives_a_variable_is_never_kept() -> None:
+def test_a_value_a_package_gives_a_variable_is_refused_and_never_quoted() -> None:
+    """Postern §4.1.3: a package carrying a value is nonconformant, and §7 says a client should refuse it."""
+
     config = {
         "mcpServers": {"shop": {"command": "uvx", "args": ["shop-mcp"], "env": {"SHOP_KEY": "sk-live-0123456789"}}}
     }
-    read = read_solution(_package_with(config))
-    assert read.servers[0].env == ("SHOP_KEY",)
-    assert "sk-live-0123456789" not in json.dumps(read.as_dict())
-    assert json.loads(solution_files(read)["mcp.json"])["mcpServers"]["shop"]["env"] == {"SHOP_KEY": ""}
+    with pytest.raises(SolutionRefused, match=r"server 'shop' gives SHOP_KEY a value\. A package names each key") as no:
+        read_solution(_package_with(config))
+    assert "sk-live-0123456789" not in str(no.value)
+
+
+def test_a_variable_left_blank_or_given_a_reference_or_the_shared_client_is_taken_as_a_name() -> None:
+    env = {
+        "SHOP_KEY": "",
+        "SHOP_REGION": None,
+        "SHOP_USER": "${SHOP_USER}",
+        "SHOP_HOST": "${env:SHOP_HOST}",
+        "SHOP_PIN": "${input:shop-pin}",
+        "GOOGLE_CLIENT": "__SIGRIX_SHARED_OAUTH__:GOOGLE_CLIENT",
+    }
+    read = read_solution(_package_with({"mcpServers": {"shop": {"command": "uvx", "args": ["shop-mcp"], "env": env}}}))
+    assert read.servers[0].env == tuple(env)
+    assert json.loads(solution_files(read)["mcp.json"])["mcpServers"]["shop"]["env"] == dict.fromkeys(env, "")
 
 
 def test_the_form_keeps_an_assistants_servers() -> None:

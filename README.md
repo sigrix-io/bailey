@@ -54,6 +54,8 @@ It exits 1 when a required check fails, and `bailey doctor --json` prints the sa
 
 A solution is an Agent Plugins folder plus one file, `assistant.json`, which says how its parts fit together: which skill holds the instructions, which skills load when needed, which tools write, and which documents to ask you for. Its schema is published in [`schemas/`](schemas/README.md), so anyone can build a solution Bailey runs.
 
+A solution names the keys it needs and never carries one: Bailey refuses a package with a key's value in it, and marks anything installed from a file unverified, since nobody has checked it.
+
 ## What comes next
 
 - **0.1: the app.** Chat, assistants, skills loaded when needed, tools with approval, knowledge from your own documents with citations, apps, and installing a solution from a file.
@@ -78,7 +80,8 @@ ruff check . && ruff format --check . && mypy && pytest
 From a checkout, `bailey` starts the app as far as 0.1 has come: chat with an assistant on your AI provider,
 skills loaded when a request needs them, a solution's MCP tools with a question before any tool that changes
 something, documents that answers cite, sent whole or searched on this computer, a solution's crew apps drawn by
-Gatehouse, assistants made from templates, edited, exported and imported, and settings with your provider's key.
+Gatehouse, assistants made from templates, edited and exported, solutions installed from a ZIP or a folder after an
+install screen that says what each needs, a Sigrix download among them, and settings with your provider's key.
 `CONTRIBUTING.md` says how to keep a development setup apart from your own.
 
 Searching a large collection of documents takes a model of about 90 MB, which Bailey downloads from Hugging Face

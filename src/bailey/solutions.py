@@ -26,8 +26,9 @@ server lists that its declaration does not, and every tool of a server with none
 Bailey's templates are written this way, an assistant exports this way, and an import
 reads it, so one reader serves all three. It is the wider reader ``schemas/README.md``
 describes: it ignores a member it does not know and refuses a major version it does not
-know. What installing a stranger's package needs on top of reading it (the credential
-scan, the unverified mark, the install screen) is story S10's.
+know. What installing a stranger's package needs on top of reading it (a folder, a
+download from before downloads were solutions, the credential check, the unverified mark,
+the install screen) is :mod:`bailey.install`'s.
 """
 
 from __future__ import annotations
@@ -73,6 +74,13 @@ SAMPLES_FOLDER = "samples"
 #: A server's name in ``mcp.json``, and a variable's name in its ``env``.
 SERVER_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$")
 VARIABLE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+#: The placeholder a Sigrix download writes for the variable its shared sign-in client fills,
+#: which the download's ``setup.sh`` replaces with that client's file (Sigrix's
+#: ``assistant_spec._SHARED_OAUTH_SENTINEL``). A name standing in for a path, not a value.
+SHARED_CLIENT_PLACEHOLDER = re.compile(r"^__SIGRIX_SHARED_OAUTH__:[A-Za-z_][A-Za-z0-9_]{0,127}$")
+#: A reference to a variable, as Claude Code's configuration writes one (``${NAME}``), or to an
+#: environment variable or a prompted input, as VS Code's does (``${env:NAME}``, ``${input:id}``).
+_VARIABLE_REFERENCE = re.compile(r"^\$\{(?:env:|input:)?[A-Za-z_][A-Za-z0-9_.-]{0,127}\}$")
 #: A knowledge slot's name, and an extension it accepts (schemas/0.1, knowledge_slot).
 SLOT_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 EXTENSION = re.compile(r"^[a-z0-9]{1,16}$")
@@ -89,6 +97,32 @@ _LEFT_OUT = re.compile(r"^(?:\.env|\.last_error|\.postern[^/]*|workspace/.*|(?:.
 
 #: The fixed time written into every zip entry, so one assistant always exports to the same bytes.
 _ZIP_TIME = (2026, 1, 1, 0, 0, 0)
+
+#: :attr:`Assistant.origin` for an assistant installed from a file.
+ORIGIN_FILE = "file"
+
+
+def carries_no_value(value: object) -> bool:
+    """Whether what an MCP configuration gives a variable is no credential: nothing, a reference, or the placeholder.
+
+    A package names each key and leaves its value to the person (Postern §4.1.3): the
+    download writes ``""`` for each, and a value anywhere makes the package nonconformant.
+    """
+
+    if value is None or value == "":
+        return True
+    return isinstance(value, str) and bool(
+        _VARIABLE_REFERENCE.fullmatch(value) or SHARED_CLIENT_PLACEHOLDER.fullmatch(value)
+    )
+
+
+def value_refused(where: str, variable: str) -> str:
+    """The sentence for a package that gives a variable a value, which it never quotes."""
+
+    return (
+        f"{where} gives {variable} a value. A package names each key and leaves its value to you "
+        "(Postern §4.1.3), so Bailey installs nothing from it."
+    )
 
 
 class SolutionRefused(ValueError):
@@ -277,6 +311,14 @@ class Assistant:
     #: Bailey's own setting, not the solution's: answer only from the documents, and say
     #: so rather than answer from what the model knows when they do not cover a question.
     grounded_only: bool = False
+    #: Bailey's own record of where this copy came from, not the solution's: ``"file"`` for
+    #: one installed from a file, which nobody has checked and the page marks unverified
+    #: (design §4); ``""`` for Bailey's templates and what the person made from them.
+    origin: str = ""
+
+    @property
+    def unverified(self) -> bool:
+        return self.origin == ORIGIN_FILE
 
     def skill(self, name: str) -> Skill | None:
         return next((skill for skill in self.skills if skill.name == name), None)
@@ -310,6 +352,7 @@ class Assistant:
             "samples": [sample.as_dict() for sample in self.samples],
             "apps": [app.as_dict() for app in self.apps],
             "grounded_only": self.grounded_only,
+            "origin": self.origin,
         }
 
     @classmethod
@@ -329,6 +372,7 @@ class Assistant:
             samples=tuple(Sample.from_dict(sample) for sample in data.get("samples") or ()),
             apps=tuple(App.from_dict(app) for app in data.get("apps") or ()),
             grounded_only=bool(data.get("grounded_only")),
+            origin=str(data.get("origin") or ""),
         )
 
 
@@ -538,11 +582,14 @@ def _read_server(name: str, entry: Mapping[str, Any], declaration: object, where
         raise SolutionRefused(f"{where}: env should name each variable the server reads, which the person fills in.")
     if len(env) > MAX_VARIABLES:
         raise SolutionRefused(f"{where} names {len(env)} variables; Bailey fills {MAX_VARIABLES} at most.")
-    for variable in env:
+    for variable, value in env.items():
         if not VARIABLE_NAME.fullmatch(variable):
             raise SolutionRefused(f"{where}: {variable[:60]!r} is not a variable's name.")
-    # Only the names are kept. A value in a package is never what a server receives: the
-    # person gives each one, and the keychain keeps it.
+        # A value is refused, not dropped: a package carrying one is nonconformant, and
+        # Postern §7 says a client should refuse it rather than install the rest.
+        if not carries_no_value(value):
+            raise SolutionRefused(value_refused(where, variable))
+    # Only the names are kept: the person gives each value, and the keychain keeps it.
     return Server(name, command=command.strip(), args=tuple(args), env=tuple(env), tools=tools, write_tools=write_tools)
 
 
@@ -774,15 +821,29 @@ def read_solution(files: Mapping[str, bytes]) -> Assistant:
     )
 
 
-def _safe_member(name: str) -> str | None:
-    """The path an entry may be read under, or ``None`` for one Bailey refuses."""
+def safe_member(name: str) -> str | None:
+    """The path an entry may be read under, or ``None`` for one Bailey refuses.
+
+    Refused rather than repaired, as ``sigrix-runtime``'s pull refuses one: a package
+    naming ``../`` or ``/etc/`` is not one with a typo in it.
+    """
 
     if "\\" in name or "\0" in name or name.startswith("/") or re.match(r"^[A-Za-z]:", name):
         return None
     parts = [part for part in name.split("/") if part not in ("", ".")]
-    if any(part == ".." for part in parts):
+    if not parts or any(part == ".." for part in parts):
         return None
     return "/".join(parts)
+
+
+def without_wrapper(files: Mapping[str, bytes]) -> dict[str, bytes]:
+    """The files with the one folder that wraps them all taken off, as a zip of a folder has."""
+
+    tops = {path.split("/", 1)[0] for path in files}
+    if len(tops) == 1 and all("/" in path for path in files):
+        prefix = next(iter(tops)) + "/"
+        return {path.removeprefix(prefix): content for path, content in files.items()}
+    return dict(files)
 
 
 def unzip_solution(data: bytes) -> dict[str, bytes]:
@@ -807,9 +868,13 @@ def unzip_solution(data: bytes) -> dict[str, bytes]:
         name = info.orig_filename
         if stat.S_ISLNK(info.external_attr >> 16):
             raise SolutionRefused(f"{name} is a link, which a package may not carry.")
-        path = _safe_member(name)
+        path = safe_member(name)
         if path is None:
             raise SolutionRefused(f"{name} points outside the package.")
+        if path in files:
+            # Two entries under one name are read differently by different unzippers, so
+            # what one tool checked need not be what another installs.
+            raise SolutionRefused(f"The package carries two files named {path}.")
         if info.file_size > MAX_FILE_BYTES:
             raise SolutionRefused(f"{path} is larger than {MAX_FILE_BYTES // 1024} KB.")
         if info.compress_size and info.file_size / info.compress_size > MAX_COMPRESSION_RATIO:
@@ -822,11 +887,7 @@ def unzip_solution(data: bytes) -> dict[str, bytes]:
         if len(content) > MAX_FILE_BYTES:
             raise SolutionRefused(f"{path} is larger than {MAX_FILE_BYTES // 1024} KB.")
         files[path] = content
-    tops = {path.split("/", 1)[0] for path in files}
-    if len(tops) == 1 and all("/" in path for path in files):
-        prefix = next(iter(tops)) + "/"
-        files = {path.removeprefix(prefix): content for path, content in files.items()}
-    return files
+    return without_wrapper(files)
 
 
 # ---------------------------------------------------------------------------
@@ -915,6 +976,7 @@ def assistant_from_form(form: Mapping[str, Any], previous: Assistant) -> Assista
         samples=previous.samples,
         apps=previous.apps,
         grounded_only=_flag(form, "grounded_only", previous.grounded_only),
+        origin=previous.origin,
     )
 
 

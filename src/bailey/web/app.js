@@ -732,6 +732,11 @@
       if (assistant.id === chat.assistants.active) {
         title.append(" ", element("span", "badge", "In use"));
       }
+      if (assistant.unverified) {
+        var mark = element("span", "badge unverified", "Unverified");
+        mark.title = "Installed from a file, not from the Sigrix store: nobody has checked what it does.";
+        title.append(" ", mark);
+      }
       words.append(title);
       if (assistant.description) {
         words.append(element("p", "hint", assistant.description));
@@ -797,28 +802,266 @@
       });
   });
 
-  byId("import-file").addEventListener("change", function (event) {
+  // Installing --------------------------------------------------------------
+  // A package is checked and shown before anything is written (bailey.install): the
+  // server answers with the install screen, holds what it checked, and writes exactly
+  // that when the person presses Install.
+
+  var installing = null;
+  var packageLimits = null;
+
+  function checkPackage(sent, name) {
+    say("assistants-status", "Checking " + name + "…", false);
+    sent
+      .then(function (screen) {
+        say("assistants-status", "", false);
+        drawInstall(screen);
+      })
+      .catch(function (error) {
+        say("assistants-status", error.message, true);
+      });
+  }
+
+  function base64(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var binary = "";
+    for (var at = 0; at < bytes.length; at += 0x8000) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(at, at + 0x8000));
+    }
+    return btoa(binary);
+  }
+
+  byId("install-zip").addEventListener("change", function (event) {
     var file = event.target.files && event.target.files[0];
     event.target.value = "";
     if (!file) {
       return;
     }
-    file
-      .arrayBuffer()
-      .then(function (data) {
-        return api("POST", "/api/assistants/import", data, "application/zip");
+    checkPackage(file.arrayBuffer().then(function (data) {
+      return api("POST", "/api/installs", data, "application/zip");
+    }), file.name);
+  });
+
+  byId("install-folder").addEventListener("change", function (event) {
+    var picked = Array.prototype.slice.call(event.target.files || []);
+    event.target.value = "";
+    if (!picked.length) {
+      return;
+    }
+    var name = (picked[0].webkitRelativePath || picked[0].name).split("/")[0];
+    // A folder's version control and a Mac's folder settings are no part of a solution.
+    var files = picked.filter(function (file) {
+      var path = file.webkitRelativePath || file.name;
+      return !/(^|\/)\.git\//.test(path) && !/(^|\/)\.DS_Store$/.test(path);
+    });
+    var limits = packageLimits || {};
+    var total = files.reduce(function (sum, file) {
+      return sum + file.size;
+    }, 0);
+    if (limits.files && files.length > limits.files) {
+      say("assistants-status", name + " holds " + files.length + " files, and a solution holds " + limits.files +
+        " at most. Choose the solution's own folder.", true);
+      return;
+    }
+    if (limits.bytes && total > limits.bytes) {
+      say("assistants-status", name + " holds more than " + Math.round(limits.bytes / 1048576) +
+        " MB, more than a solution holds. Choose the solution's own folder.", true);
+      return;
+    }
+    checkPackage(Promise.all(files.map(function (file) {
+      return file.arrayBuffer().then(function (data) {
+        return { path: file.webkitRelativePath || file.name, data: base64(data) };
+      });
+    })).then(function (entries) {
+      return api("POST", "/api/installs", { files: entries });
+    }), name);
+  });
+
+  function installSection(title) {
+    var section = element("section", "install-section");
+    section.append(element("h3", "subhead", title));
+    byId("install-sections").append(section);
+    return section;
+  }
+
+  function keyRow(key) {
+    var row = element("div", "install-key");
+    var head = element("p", "install-key-name");
+    head.append(element("code", "", key.name), " read by " + key.reads_it);
+    row.append(head);
+    if (key.purpose) {
+      row.append(element("p", "", key.purpose));
+    }
+    if (key.signup_url) {
+      var link = element("a", "", "Where to get one");
+      link.href = key.signup_url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      var where = element("p", "hint");
+      where.append(link);
+      row.append(where);
+    } else if (key.server && !key.note) {
+      row.append(element("p", "hint", "The solution does not say where to get one."));
+    }
+    if (key.note) {
+      row.append(element("p", "hint", key.note));
+    }
+    if (key.server && !(settings && settings.keys && settings.keys.locked)) {
+      var id = "install-key-" + key.server + "-" + key.name;
+      var field = element("div", "field");
+      var label = element("label", "", "Its value");
+      label.htmlFor = id;
+      var input = element("input");
+      input.type = "password";
+      input.id = id;
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      input.placeholder = "Or give it later, under Tools";
+      input.setAttribute("data-server", key.server);
+      input.setAttribute("data-variable", key.name);
+      field.append(label, input);
+      row.append(field);
+    }
+    return row;
+  }
+
+  function drawInstall(screen) {
+    installing = screen;
+    var title = byId("install-title");
+    title.textContent = "Install " + screen.title + "?";
+    if (screen.unverified) {
+      title.append(" ", element("span", "badge unverified", "Unverified"));
+    }
+    byId("install-description").textContent = screen.description;
+    var notices = byId("install-notices");
+    notices.replaceChildren();
+    screen.notices.forEach(function (notice, index) {
+      notices.append(element("p", "notice-card" + (index === 0 && screen.unverified ? " unverified-notice" : ""), notice));
+    });
+    byId("install-sections").replaceChildren();
+    var provider = settings ? providerById(settings.provider) : null;
+    var keys = installSection("Keys it needs");
+    keys.append(element("p", "", "Your AI provider's key, from Settings" +
+      (provider ? ": " + provider.name + "." : ". Choose a provider there first.")));
+    screen.keys.forEach(function (key) {
+      keys.append(keyRow(key));
+    });
+    if (settings && settings.keys && settings.keys.locked && screen.keys.some(function (key) { return key.server; })) {
+      keys.append(element("p", "hint", "Your keys are locked. Unlock them in Settings to give a tool server its keys."));
+    }
+    if (screen.knowledge.length) {
+      var documents = installSection("Documents it asks you for");
+      screen.knowledge.forEach(function (slot) {
+        var row = element("div", "slot");
+        row.append(element("p", "slot-title", slot.name));
+        row.append(element("p", "", slot.description));
+        row.append(element("p", "hint", (slot.required ? "Needed before it runs. " : "") + "File types: " +
+          slot.accepts.join(", ") + "." + (slot.sample ? " A made-up example comes with it." : "")));
+        documents.append(row);
+      });
+    }
+    if (screen.tools.length) {
+      var tools = installSection("Tools");
+      screen.tools.forEach(function (server) {
+        var card = element("div", "tool-server");
+        card.append(element("h4", "", server.name));
+        card.append(element("p", "hint", (server.remote ? "A remote server at " : "Starts with: ") + server.runs));
+        if (server.tools) {
+          var list = element("ul", "tool-list");
+          server.tools.forEach(function (tool) {
+            list.append(element("li", "", tool.name + (tool.asks ? ": changes something, so it asks first" : ": reads, so it runs without asking")));
+          });
+          card.append(list);
+        } else {
+          card.append(element("p", "hint", "It declares none of its tools, so each asks before it runs."));
+        }
+        tools.append(card);
+      });
+    }
+    if (screen.apps.length) {
+      var apps = installSection("Apps");
+      screen.apps.forEach(function (app) {
+        var row = element("div", "app-entry");
+        row.append(element("p", "slot-title", app.title));
+        if (app.summary) {
+          row.append(element("p", "", app.summary));
+        }
+        row.append(element("p", "hint", "Runs in an environment of its own: about " + app.download_mb +
+          " MB to download once you say yes, and about " + app.disk_mb + " MB on disk."));
+        if (app.provider_note) {
+          row.append(element("p", "hint", app.provider_note));
+        }
+        apps.append(row);
+      });
+    }
+    if (screen.skills.length || screen.skills_sold_separately.length) {
+      var skills = installSection("Skills");
+      screen.skills.forEach(function (skill) {
+        skills.append(element("p", "", skill.name + ": " + skill.description));
+      });
+      if (screen.skills_sold_separately.length) {
+        skills.append(element("p", "hint", "Sold separately, and it works without them: " + screen.skills_sold_separately.join(", ") + "."));
+      }
+    }
+    if (screen.left_out.length) {
+      var left = installSection("Left out");
+      left.append(element("p", "hint", screen.left_out.join(", ")));
+    }
+    say("install-status", "", false);
+    byId("install-card").hidden = false;
+    byId("install-card").scrollIntoView({ block: "start" });
+  }
+
+  function closeInstall() {
+    installing = null;
+    byId("install-card").hidden = true;
+  }
+
+  byId("install-cancel").addEventListener("click", function () {
+    if (installing) {
+      api("DELETE", "/api/installs/" + encodeURIComponent(installing.id)).catch(function () {
+        return null;
+      });
+    }
+    closeInstall();
+    say("assistants-status", "Nothing was installed.", false);
+  });
+
+  byId("install-confirm").addEventListener("click", function () {
+    if (!installing) {
+      return;
+    }
+    var screen = installing;
+    var given = Array.prototype.slice.call(document.querySelectorAll("#install-sections input[data-variable]"))
+      .filter(function (input) {
+        return input.value.trim();
       })
+      .map(function (input) {
+        return { server: input.getAttribute("data-server"), name: input.getAttribute("data-variable"), value: input.value };
+      });
+    say("install-status", "Installing…", false);
+    api("POST", "/api/installs/" + encodeURIComponent(screen.id))
       .then(function (view) {
+        closeInstall();
         adoptAssistants(view);
         drawAssistantPick();
         drawAssistantList();
-        say("assistants-status", "Imported " + file.name + "." + (view.notice ? " " + view.notice : ""), false);
-        var made = chat.assistants.assistants.filter(function (assistant) {
-          return assistant.id === view.id;
-        })[0] || {};
-        var opened = made.servers && made.servers.length ? openTools(view.id) : Promise.resolve(null);
-        return opened
+        say("assistants-status", "Installed " + screen.title + ".", false);
+        var saved = given.reduce(function (chain, key) {
+          return chain.then(function () {
+            return api("PUT", "/api/assistants/" + encodeURIComponent(view.id) + "/tools/" +
+              encodeURIComponent(key.server) + "/variables/" + encodeURIComponent(key.name), { value: key.value });
+          });
+        }, Promise.resolve(null));
+        return saved
+          .catch(function (error) {
+            say("assistants-status", "Installed " + screen.title + ", but a key was not saved: " + error.message +
+              " Give it under Tools.", true);
+          })
           .then(function () {
+            var made = chat.assistants.assistants.filter(function (assistant) {
+              return assistant.id === view.id;
+            })[0] || {};
             return made.apps && made.apps.length ? openApps(view.id) : null;
           })
           .then(function () {
@@ -826,7 +1069,7 @@
           });
       })
       .catch(function (error) {
-        say("assistants-status", error.message, true);
+        say("install-status", error.message, true);
       });
   });
 
@@ -1527,7 +1770,24 @@
     drawProviders();
     drawSelection();
     drawSetupNeeded();
+    var installingSetting = answer.installing || {};
+    byId("skills-with-scripts").checked = Boolean(installingSetting.skills_with_scripts);
+    byId("skills-with-scripts-label").textContent = installingSetting.label || "";
   }
+
+  byId("skills-with-scripts").addEventListener("change", function (event) {
+    var on = event.target.checked;
+    api("PUT", "/api/settings", { skills_with_scripts: on })
+      .then(function (answer) {
+        drawSettings(answer);
+        say("installing-status", on ? "Skills with scripts install from a file, without their scripts." :
+          "Skills with scripts install only from the Sigrix store.", false);
+      })
+      .catch(function (error) {
+        event.target.checked = !on;
+        say("installing-status", error.message, true);
+      });
+  });
 
   function loadSettings() {
     return api("GET", "/api/settings").then(drawSettings);
@@ -1648,6 +1908,7 @@
     api("GET", "/api/status")
       .then(function (status) {
         byId("version").textContent = status.version;
+        packageLimits = status.package;
         byId("nav").hidden = false;
         return loadSettings();
       })

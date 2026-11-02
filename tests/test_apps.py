@@ -155,7 +155,10 @@ def _events(text: str) -> list[tuple[str, dict[str, Any]]]:
 
 
 def test_an_imported_solution_keeps_its_app_and_says_what_an_app_is(client: TestClient, state: AppState) -> None:
-    imported = _ready(client, files=_fixture_files(**{"apps/digest/.env": b"OPENAI_API_KEY=seller-key\n"}))
+    # A .env giving a key a value is refused (tests/test_install.py); one with a listing's id
+    # and a blank key is only left out.
+    env = b"POSTERN_AGENT_ID=sigrix/weekly-digest\nOPENAI_API_KEY=\n"
+    imported = _ready(client, files=_fixture_files(**{"apps/digest/.env": env}))
     assert "a program its seller wrote" in imported["notice"]
     assert "Left out of its apps: apps/digest/.env" in imported["notice"]
     folder = app_folder(state.data_folder, imported["id"], "digest")

@@ -811,3 +811,60 @@ textarea {
   margin-top: 8px;
   padding-top: 12px;
 }
+
+/* Installing a solution: the two pickers, the install screen and its unverified mark. */
+
+.install-from {
+  align-items: center;
+}
+
+.install-from input[type="file"]:focus-visible + .file-button {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.badge.unverified {
+  background: var(--warn);
+  color: var(--bg);
+}
+
+.unverified-notice {
+  border-color: var(--warn);
+  border-left-width: 4px;
+}
+
+#install-notices {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.install-section .slot,
+.install-section .tool-server,
+.install-section .app-entry {
+  margin: 0 0 0.75rem;
+}
+
+.install-section .tool-server h4 {
+  font-size: 1rem;
+  margin: 0 0 0.25rem;
+}
+
+.install-key {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  margin: 0 0 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.install-key p {
+  margin: 0 0 0.25rem;
+}
+
+.install-key .field {
+  margin: 0.5rem 0 0;
+}
+
+.install-key-name code {
+  font-weight: 600;
+}
