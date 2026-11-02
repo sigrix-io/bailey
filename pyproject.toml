@@ -55,6 +55,9 @@ dependencies = [
     "onnxruntime==1.31.0",
     "numpy==2.5.4; python_version >= '3.12'",
     "numpy==2.4.6; python_version < '3.12'",
+    # Forwards an app's four Postern verbs to its runner (bailey.apps); the provider SDKs
+    # above already bring it, and the proxy names it rather than lean on them.
+    "httpx>=0.28,<1",
 ]
 
 [project.optional-dependencies]
@@ -66,6 +69,11 @@ dev = [
     "jsonschema>=4.23",
     # Starlette's TestClient, which drives the app in the tests.
     "httpx2>=2.16",
+    # The runner an app's environment gets, and what its execution layer imports, so the
+    # tests run a real runner. Never a dependency of Bailey itself (bailey.apps).
+    "sigrix-runtime==0.1.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.2",
 ]
 
 [project.scripts]
@@ -80,7 +88,7 @@ Changelog = "https://github.com/sigrix-io/bailey/blob/main/CHANGELOG.md"
 packages = ["src/bailey"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/bailey", "schemas", "tests", "README.md", "LICENSE", "NOTICE", "CHANGELOG.md"]
+include = ["src/bailey", "schemas", "tests", "scripts", "README.md", "LICENSE", "NOTICE", "CHANGELOG.md"]
 # The pin guard reads .github/workflows, which the sdist does not carry: it
 # checks the repository, not the package.
 exclude = ["tests/test_workflow_pins.py"]

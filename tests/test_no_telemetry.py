@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import emulated_providers as emulator
+from app_environments import ready_environment
 from running import Running
 
 from bailey.solutions import Assistant, Server, Skill, read_solution, zip_solution
@@ -150,6 +151,44 @@ def _knowledge_chat(bailey: Running) -> None:
     assert status == 409 and "downloads once from Hugging Face" in refused["error"]
 
 
+#: The same hook, for each process an app's environment starts: the runner, its worker and
+#: the crew. That environment's ``.pth`` imports it, since Bailey hands a runner nothing but
+#: its own short list of variables.
+_CHILD_RECORDER = """
+import json, sys
+_log = open({log!r}, "a", buffering=1, encoding="utf-8")
+def _hook(event, args):
+    if event == "socket.connect" and isinstance(args[1], tuple):
+        _log.write(json.dumps({{"event": event, "host": str(args[1][0]), "port": args[1][1]}}) + "\\n")
+    elif event == "socket.getaddrinfo":
+        host = args[0]
+        _log.write(json.dumps({{"event": event, "host": host.decode() if isinstance(host, bytes) else host}}) + "\\n")
+sys.addaudithook(_hook)
+"""
+
+
+def _app_run(bailey: Running, home: Path, children_log: Path) -> None:
+    """A solution's crew app, its environment ready, run through Bailey's proxy on a local provider."""
+
+    provider = emulator.serve_in_background()
+    settings = {"provider": "openai-compatible", "address": provider + "/local/v1", "model": "qwen3:8b"}
+    assert bailey.call("PUT", "/api/settings", settings)[0] == 200
+    fixture = Path(__file__).parent / "fixtures" / "weekly-digest"
+    files = {path.relative_to(fixture).as_posix(): path.read_bytes() for path in fixture.rglob("*") if path.is_file()}
+    status, imported = bailey.call("POST", "/api/assistants/import", zip_solution(read_solution(files)))
+    assert status == 200, imported
+    site = home.parent / "child-recorder"
+    site.mkdir()
+    (site / "bailey_child_recorder.py").write_text(_CHILD_RECORDER.format(log=str(children_log)), encoding="utf-8")
+    ready_environment(home, fixture / "apps" / "digest", site, startup="bailey_child_recorder")
+    app = f"/api/assistants/{imported['id']}/apps/digest/postern/v0"
+    assert bailey.call("GET", f"{app}/describe")[0] == 200
+    status, streamed = bailey.call(
+        "POST", f"{app}/stream", {"inputs": {"prompt": "New this week: a reading on Friday."}}
+    )
+    assert status == 200 and streamed.count("event: step") == 2, streamed
+
+
 def _run(tmp_path: Path, mode: str) -> list[dict[str, Any]]:
     recorder = tmp_path / "recorder.py"
     recorder.write_text(_RECORDER, encoding="utf-8")
@@ -180,6 +219,8 @@ def _run(tmp_path: Path, mode: str) -> list[dict[str, Any]]:
             _tool_chat(bailey, tmp_path / "drafts.jsonl")
         elif mode == "knowledge":
             _knowledge_chat(bailey)
+        elif mode == "apps":
+            _app_run(bailey, tmp_path / f"home-{mode}", tmp_path / "apps-children.jsonl")
     finally:
         bailey.stop()
     if not log.exists():
@@ -214,3 +255,14 @@ def test_documents_cited_and_searched_connect_to_nothing_and_fetch_no_model_unas
     events = _run(tmp_path, "knowledge")
     assert any(event.get("event") == "socket.connect" for event in events), "the canary: the chat reached its provider"
     assert outbound(events) == []
+
+
+def test_an_app_and_its_runner_connect_to_nothing_but_this_computer_and_the_provider(tmp_path: Path) -> None:
+    events = _run(tmp_path, "apps")
+    log = tmp_path / "apps-children.jsonl"
+    children = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert any(event.get("event") == "socket.connect" for event in children), (
+        "the canary: the crew reached its provider"
+    )
+    assert outbound(events) == [], "Bailey's own process"
+    assert outbound(children) == [], "the runner, its worker and the crew: no licence check, no update check"

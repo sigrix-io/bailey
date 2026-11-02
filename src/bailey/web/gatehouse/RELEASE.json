@@ -1,0 +1,16 @@
+{
+  "package": "@sigrix-io/gatehouse",
+  "version": "0.4.0",
+  "commit": "4ffa9d1101a37542efde32db4ed5f2a066ab4052",
+  "tarball": "https://registry.npmjs.org/@sigrix-io/gatehouse/-/gatehouse-0.4.0.tgz",
+  "integrity": "sha512-izAXm7/9ozynXgG+0IAbHGqmD4DlIzuNehigk5MBlvOoM603ffOaU4pBsYccS+ivb6+nYg/86TyltDxHNQuozA==",
+  "files": {
+    "postern_client.js": "b5cb177246ab74239a63954777e3b792c3a3ae520ba59ad2a1196e62f69d77b9",
+    "run_view_model.js": "f87a0194e432c07c49119817dbcd6b045a033d8753e19951e411e3d23bed8c9c",
+    "refusal_copy.js": "5adbe17619254fc6c86fe4e0bcf29a1d9fca816ec6161160da05086e0d847251",
+    "run_renderer.js": "843b1ea61a485f5c2751cec68d155df88dbd60c721e387ef23c3782163846e08",
+    "gatehouse.css": "b8948526698c6cc034de9edcafbe0f241909614e80ec6569fdc23d5c72dc22a8",
+    "LICENSE": "a0772050bb981886c74784049c080de3f72809d24bc2bb0d510ebf4c674e1c49",
+    "NOTICE": "bf8b882d584bf1b4cd38e508c40f03e3ae3fbcbd8380438f9d108e5d8739cda2"
+  }
+}

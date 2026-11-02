@@ -6,7 +6,13 @@
   <meta name="referrer" content="no-referrer">
   <title>Bailey</title>
   <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/gatehouse/gatehouse.css">
   <link rel="stylesheet" href="/static/app.css">
+  <!-- Gatehouse, which draws an app's run page: a vendored release, loaded in its order. -->
+  <script src="/static/gatehouse/postern_client.js" defer></script>
+  <script src="/static/gatehouse/run_view_model.js" defer></script>
+  <script src="/static/gatehouse/refusal_copy.js" defer></script>
+  <script src="/static/gatehouse/run_renderer.js" defer></script>
   <script src="/static/app.js" defer></script>
 </head>
 <body>
@@ -138,6 +144,17 @@
             <button type="button" class="quiet" id="close-knowledge">Close</button>
           </div>
           <p class="status" id="knowledge-status" role="status"></p>
+        </section>
+
+        <section class="card" id="apps-card" hidden aria-labelledby="apps-title">
+          <h2 id="apps-title">Apps</h2>
+          <p class="notice-card" id="apps-notice"></p>
+          <div id="apps-list"></div>
+          <div class="app-run" id="app-run" hidden></div>
+          <div class="actions">
+            <button type="button" class="quiet" id="close-apps">Close</button>
+          </div>
+          <p class="status" id="apps-status" role="status"></p>
         </section>
 
         <section class="card" id="tools-card" hidden aria-labelledby="tools-title">

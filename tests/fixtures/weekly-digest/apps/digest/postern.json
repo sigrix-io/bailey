@@ -1,0 +1,16 @@
+{
+  "postern": "0.1",
+  "agent": {
+    "id": "harbour-lane/weekly-digest",
+    "name": "Digest",
+    "version": "1.0.0",
+    "summary": "Turns the week's notes into the shop's newsletter."
+  },
+  "inputs": [
+    {"key": "prompt", "label": "This week's notes", "type": "text", "required": true, "default": null},
+    {"key": "passages", "label": "Passages from your documents", "type": "text", "required": false, "default": null}
+  ],
+  "output": {"type": "text"},
+  "capabilities": {"tools": [], "write_tools": []},
+  "credentials": [{"env": "OPENAI_API_KEY", "purpose": "Runs the agents in this crew."}]
+}

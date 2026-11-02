@@ -1,0 +1,4 @@
+crewai==1.15.33
+crewai-tools==1.15.33
+python-dotenv==1.2.3
+PyYAML==6.0.2

@@ -77,13 +77,16 @@ ruff check . && ruff format --check . && mypy && pytest
 
 From a checkout, `bailey` starts the app as far as 0.1 has come: chat with an assistant on your AI provider,
 skills loaded when a request needs them, a solution's MCP tools with a question before any tool that changes
-something, documents that answers cite, sent whole or searched on this computer, assistants made from templates,
-edited, exported and imported, and settings with your provider's key.
+something, documents that answers cite, sent whole or searched on this computer, a solution's crew apps drawn by
+Gatehouse, assistants made from templates, edited, exported and imported, and settings with your provider's key.
 `CONTRIBUTING.md` says how to keep a development setup apart from your own.
 
 Searching a large collection of documents takes a model of about 90 MB, which Bailey downloads from Hugging Face
 once you say yes to it. On a computer that cannot reach Hugging Face, put the files of
 `Qdrant/all-MiniLM-L6-v2-onnx` in a folder and set `BAILEY_SEARCH_MODEL` to that folder.
+
+An app runs in an environment of its own, with CrewAI and its libraries: about 250 MB from PyPI, downloaded once
+you say yes to it, with `uv` when it is installed, and about 900 MB on disk.
 
 ## Licence
 

@@ -12,7 +12,23 @@
   --danger: #a3261d;
   --ok: #1d6b3a;
   --focus: #3f4cc4;
+  --warn: #8c5600;
   --radius: 10px;
+  /* Gatehouse, which draws an app's run page, reads these when a host defines them. */
+  --sx-line: var(--line);
+  --sx-surface: var(--surface);
+  --sx-surface-2: var(--bg);
+  --sx-text: var(--text);
+  --sx-text-2: var(--text-2);
+  --sx-text-3: var(--text-2);
+  --sx-brand: var(--brand);
+  --sx-brand-text: var(--brand);
+  --sx-ok: var(--ok);
+  --sx-ok-text: var(--ok);
+  --sx-warn: var(--warn);
+  --sx-warn-text: var(--warn);
+  --sx-danger: var(--danger);
+  --sx-danger-text: var(--danger);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -27,6 +43,7 @@
     --danger: #ff9b8f;
     --ok: #7fdca0;
     --focus: #8f9aff;
+    --warn: #f5b454;
   }
 }
 
@@ -776,4 +793,21 @@ textarea {
 
 .checkbox-field .hint {
   grid-column: 2;
+}
+
+/* Apps: each a crew; its run page is Gatehouse's own. */
+.app-entry {
+  border-top: 1px solid var(--line);
+  padding: 12px 0;
+}
+
+.app-entry h3 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.app-run {
+  border-top: 1px solid var(--line);
+  margin-top: 8px;
+  padding-top: 12px;
 }

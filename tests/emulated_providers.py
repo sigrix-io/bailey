@@ -46,6 +46,20 @@ from starlette.routing import Route
 CHUNK_DELAY = 0.005
 
 #: Carries markup on purpose: the page must show it as text and never build an element from it.
+#: How CrewAI opens a crew member's prompt, as the tests' stand-in for it does too.
+CREW_MEMBER = "You are "
+CREW_GOAL = "Your personal goal is:"
+
+
+def crew_reply(system: str, asked: str) -> str:
+    """A crew member's answer: its role, the task it did, and what it was handed, so a test sees each arrive."""
+
+    role = system.removeprefix(CREW_MEMBER).split(".", 1)[0].strip()
+    task = next((line.strip() for line in asked.splitlines() if line.strip()), "")
+    handed = [word for word in ("notes:", "passages:", "context") if word in asked]
+    return f"{role} did: {task[:120]} (given {', '.join(handed) or 'nothing'})"
+
+
 GREETING = "Hello! I am a scripted model. <b>Markup</b> in an answer stays text, and this arrives in pieces."
 
 #: Which skill a request's words call for, in the order they are tried.
@@ -175,6 +189,13 @@ def next_turn(conversation: Conversation) -> Turn:
         else:
             first_line = loaded[-1].strip().splitlines()[0] if loaded[-1].strip() else ""
             turn = Turn(f"Following the {wanted} skill. It begins: {first_line}")
+    elif conversation.system.startswith(CREW_MEMBER) and CREW_GOAL in conversation.system:
+        reply = crew_reply(conversation.system, asked)
+        # The real CrewAI reads a reply in its own format, and asks for it in the prompt,
+        # capitalised as here; the tests' stand-in asks for nothing of the kind.
+        if "Final Answer:" in conversation.system + (conversation.user[-1] if conversation.user else ""):
+            reply = f"Thought: I now can give a great answer\nFinal Answer: {reply}"
+        turn = Turn(reply)
     else:
         turn = Turn(GREETING)
     for call in turn.calls:
@@ -586,6 +607,8 @@ app = Starlette(
         Route("/anthropic/v1/messages", anthropic_messages, methods=["POST"]),
         Route("/openai/v1/responses", openai_responses, methods=["POST"]),
         Route("/local/v1/chat/completions", chat_completions, methods=["POST"]),
+        # What CrewAI calls on OpenAI: Chat Completions, beside Bailey's own Responses.
+        Route("/openai/v1/chat/completions", chat_completions, methods=["POST"]),
     ]
 )
 

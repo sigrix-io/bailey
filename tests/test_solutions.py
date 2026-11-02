@@ -31,6 +31,7 @@ from bailey.solutions import (
     form_of,
     parse_skill,
     plugin_name,
+    read_apps,
     read_solution,
     solution_files,
     template,
@@ -560,3 +561,93 @@ def test_a_sample_over_the_bound_is_refused() -> None:
     files["samples/policies.md"] = b"x" * (256 * 1024 + 1)
     with pytest.raises(SolutionRefused, match="a sample can be 256 KB at most"):
         read_solution(files)
+
+
+# ---------------------------------------------------------------------------
+# Apps: a crew in apps/<name>/, found by its folder
+# ---------------------------------------------------------------------------
+
+DIGEST = Path(__file__).parent / "fixtures" / "weekly-digest"
+
+
+def _digest(**changes: bytes | None) -> dict[str, bytes]:
+    files = {path.relative_to(DIGEST).as_posix(): path.read_bytes() for path in DIGEST.rglob("*") if path.is_file()}
+    for path, data in changes.items():
+        if data is None:
+            files.pop(path, None)
+        else:
+            files[path] = data
+    return files
+
+
+def test_an_app_is_read_from_its_folder_with_its_title_composition_and_files() -> None:
+    (app,) = read_solution(_digest()).apps
+    assert (app.name, app.title, app.summary) == (
+        "digest",
+        "Digest",
+        "Turns the week's notes into the shop's newsletter.",
+    )
+    assert app.ui is not None and app.ui["run_label"] == "Write the digest"
+    assert set(app.files) == {"postern.json", "ui.json", "requirements.txt", "config/agents.yaml", "config/tasks.yaml"}
+    record = app.as_dict()
+    assert "files" not in record and Assistant.from_dict(read_solution(_digest()).as_dict()).apps[0].title == "Digest"
+
+
+def test_an_apps_env_file_and_a_runners_own_files_are_left_out() -> None:
+    files = _digest(
+        **{
+            "apps/digest/.env": b"OPENAI_API_KEY=seller",
+            "apps/digest/workspace/out.md": b"a run's output",
+            "apps/digest/.last_error": b"Traceback",
+            "apps/digest/sigrix_runtime/__pycache__/x.cpython-313.pyc": b"\0",
+        }
+    )
+    (app,) = read_solution(files).apps
+    assert not any(
+        path.startswith((".env", "workspace/", ".last_error")) or "__pycache__" in path for path in app.files
+    )
+    assert read_apps(files)[1] == (
+        "apps/digest/.env",
+        "apps/digest/.last_error",
+        "apps/digest/sigrix_runtime/__pycache__/x.cpython-313.pyc",
+        "apps/digest/workspace/out.md",
+    )
+
+
+@pytest.mark.parametrize(
+    ("changes", "sentence"),
+    [
+        ({"apps/digest/config/tasks.yaml": None}, "holds no crew"),
+        ({"apps/Digest Two/config/agents.yaml": b"x: 1"}, "is not an app's name"),
+        ({"apps/stray.yaml": b"x: 1"}, "is not inside an app's folder"),
+        ({"apps/digest/postern.json": b"{not json"}, "postern.json is not JSON"),
+        ({"apps/digest/postern.json": b"{}"}, "has no agent"),
+        ({"apps/digest/ui.json": b"[1]"}, "ui.json should hold one JSON object"),
+        ({"apps/digest/ui.json": b"{" + b" " * (64 * 1024) + b"}"}, "ui.json is over 64 KB"),
+    ],
+    ids=[
+        "no-crew",
+        "bad-name",
+        "outside-a-folder",
+        "describe-not-json",
+        "describe-no-agent",
+        "ui-not-object",
+        "ui-too-big",
+    ],
+)
+def test_an_app_bailey_cannot_run_is_refused_with_a_sentence(changes: dict[str, bytes | None], sentence: str) -> None:
+    with pytest.raises(SolutionRefused, match=sentence):
+        read_solution(_digest(**changes))
+
+
+def test_a_solution_may_carry_ten_apps_and_no_more() -> None:
+    crew = {"config/agents.yaml": b"a: {role: r, goal: g, backstory: b}", "config/tasks.yaml": b"t: {description: d}"}
+    files = _digest(**{f"apps/extra-{n}/{path}": data for n in range(10) for path, data in crew.items()})
+    with pytest.raises(SolutionRefused, match="carries 11 apps; Bailey takes 10 at most"):
+        read_solution(files)
+
+
+def test_editing_an_assistant_keeps_its_apps() -> None:
+    made = read_solution(_digest())
+    edited = assistant_from_form({**form_of(made), "title": "Weekly digest, edited"}, made)
+    assert [app.name for app in edited.apps] == ["digest"]

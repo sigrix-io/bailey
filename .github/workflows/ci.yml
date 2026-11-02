@@ -23,6 +23,9 @@ jobs:
       # every other test uses a stand-in, so this is what notices a fastembed or
       # onnxruntime bump that no longer loads it (tests/test_knowledge.py).
       BAILEY_TEST_REAL_EMBEDDINGS: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && '1' || '0' }}
+      # So is an app's environment, with the real CrewAI, built from PyPI and run once
+      # (tests/test_apps_real.py); this runner has no uv, so it is built with venv and pip.
+      BAILEY_TEST_REAL_CREWAI: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13' && '1' || '0' }}
     strategy:
       fail-fast: false
       matrix:

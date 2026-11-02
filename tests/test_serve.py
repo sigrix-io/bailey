@@ -99,6 +99,10 @@ def test_a_stop_signal_closes_the_store_and_exits_cleanly(tmp_path: Path, stop: 
     bailey = Running(home)
     assert bailey.call("PUT", "/api/settings", {"provider": "openai"})[0] == 200
     bailey.process.send_signal(getattr(signal, stop))
+    # One signal, as a person or a service manager sends it: stop() terminates a process
+    # still running, and a terminate handled before the Ctrl+C reads to uvicorn as a second
+    # Ctrl+C, which skips the app's shutdown and prints a traceback.
+    bailey.process.wait(timeout=30)
     code, printed = bailey.stop()
     assert code == 0
     assert "Bailey has stopped." in printed

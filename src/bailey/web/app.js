@@ -740,6 +740,9 @@
       if (assistant.servers && assistant.servers.length) {
         words.append(element("p", "hint", "Tool servers: " + assistant.servers.join(", ")));
       }
+      if (assistant.apps && assistant.apps.length) {
+        words.append(element("p", "hint", "Apps: " + assistant.apps.join(", ")));
+      }
       var actions = element("div", "actions");
       if (assistant.id !== chat.assistants.active) {
         actions.append(button("Use", "", function () {
@@ -755,6 +758,11 @@
       if (assistant.servers && assistant.servers.length) {
         actions.append(button("Tools", "quiet", function () {
           openTools(assistant.id);
+        }));
+      }
+      if (assistant.apps && assistant.apps.length) {
+        actions.append(button("Apps", "quiet", function () {
+          openApps(assistant.id);
         }));
       }
       actions.append(button("Export", "quiet", function () {
@@ -805,10 +813,17 @@
         drawAssistantPick();
         drawAssistantList();
         say("assistants-status", "Imported " + file.name + "." + (view.notice ? " " + view.notice : ""), false);
-        var opened = view.notice ? openTools(view.id) : Promise.resolve(null);
-        return opened.then(function () {
-          return view.asks_for_documents ? openKnowledge(view.id) : null;
-        });
+        var made = chat.assistants.assistants.filter(function (assistant) {
+          return assistant.id === view.id;
+        })[0] || {};
+        var opened = made.servers && made.servers.length ? openTools(view.id) : Promise.resolve(null);
+        return opened
+          .then(function () {
+            return made.apps && made.apps.length ? openApps(view.id) : null;
+          })
+          .then(function () {
+            return view.asks_for_documents ? openKnowledge(view.id) : null;
+          });
       })
       .catch(function (error) {
         say("assistants-status", error.message, true);
@@ -850,6 +865,9 @@
         adoptAssistants(view);
         if (editing === assistant.id) {
           closeEditor();
+        }
+        if (appsOf === assistant.id) {
+          closeApps();
         }
         if (toolsOf === assistant.id) {
           closeTools();
@@ -1144,6 +1162,138 @@
     });
     return found.length ? found[0].title : "this assistant";
   }
+
+  // -- apps: each a crew its own runner serves, drawn by Gatehouse through Bailey -----------
+
+  var appsOf = null;
+  var appPoll = null;
+  var appRenderer = null;
+
+  function appsPath(id) {
+    return "/api/assistants/" + encodeURIComponent(id) + "/apps";
+  }
+
+  function openApps(id) {
+    return api("GET", appsPath(id))
+      .then(drawApps)
+      .catch(function (error) {
+        say("assistants-status", error.message, true);
+      });
+  }
+
+  function closeApps() {
+    appsOf = null;
+    stopAppPoll();
+    closeAppRun();
+    byId("apps-card").hidden = true;
+  }
+
+  function drawApps(panel) {
+    if (appsOf !== panel.id) {
+      closeAppRun();
+    }
+    appsOf = panel.id;
+    byId("apps-title").textContent = "Apps of " + assistantTitle(panel.id);
+    byId("apps-notice").textContent = panel.notice;
+    var list = byId("apps-list");
+    list.replaceChildren();
+    var preparing = false;
+    panel.apps.forEach(function (app) {
+      var entry = element("div", "app-entry");
+      entry.append(element("h3", "", app.title));
+      if (app.summary) {
+        entry.append(element("p", "", app.summary));
+      }
+      if (app.provider_note) {
+        entry.append(element("p", "hint", app.provider_note));
+      }
+      var actions = element("div", "actions");
+      if (app.environment === "ready") {
+        var open = button("Open", "", function () {
+          openAppRun(panel.id, app);
+        });
+        open.disabled = Boolean(app.provider_note);
+        actions.append(open);
+      } else if (app.environment === "preparing") {
+        preparing = true;
+        entry.append(element("p", "hint", "Installing its libraries. The first time takes a few minutes."));
+      } else {
+        entry.append(element("p", "hint", (app.environment === "failed" && app.why ? app.why + " " : "") +
+          "Bailey runs each app in an environment of its own, with CrewAI and its libraries: about " +
+          panel.download_mb + " MB, downloaded once from PyPI, and about " + panel.disk_mb + " MB on disk."));
+        actions.append(button(app.environment === "failed" ? "Try again" : "Install its libraries", "", function () {
+          api("POST", appsPath(panel.id) + "/" + encodeURIComponent(app.name) + "/environment")
+            .then(drawApps)
+            .catch(function (error) {
+              say("apps-status", error.message, true);
+            });
+        }));
+      }
+      entry.append(actions);
+      list.append(entry);
+    });
+    if (preparing) {
+      startAppPoll(panel.id);
+    } else {
+      stopAppPoll();
+    }
+    byId("apps-card").hidden = false;
+    byId("apps-card").scrollIntoView({ block: "start" });
+  }
+
+  function startAppPoll(id) {
+    if (appPoll) {
+      return;
+    }
+    appPoll = window.setInterval(function () {
+      api("GET", appsPath(id))
+        .then(function (panel) {
+          if (appsOf === id) {
+            drawApps(panel);
+          }
+        })
+        .catch(function () {
+          stopAppPoll();
+        });
+    }, 3000);
+  }
+
+  function stopAppPoll() {
+    if (appPoll) {
+      window.clearInterval(appPoll);
+      appPoll = null;
+    }
+  }
+
+  // Gatehouse draws the form from the app's describe, lays it out from its ui.json, and
+  // shows the steps as they happen. Every request goes through Bailey with the session's token.
+  function openAppRun(id, app) {
+    closeAppRun();
+    var box = byId("app-run");
+    var mount = element("div", "app-mount");
+    box.append(mount);
+    var client = new window.Gatehouse.PosternClient(appsPath(id) + "/" + encodeURIComponent(app.name), {
+      headers: { Authorization: "Bearer " + token },
+    });
+    appRenderer = new window.Gatehouse.RunRenderer(mount, client, { composition: app.ui || null });
+    box.hidden = false;
+    appRenderer.load().catch(function (error) {
+      say("apps-status", (error && error.message) || "The app did not open.", true);
+    });
+    box.scrollIntoView({ block: "start" });
+  }
+
+  function closeAppRun() {
+    if (appRenderer) {
+      appRenderer.stop();
+      appRenderer = null;
+    }
+    var box = byId("app-run");
+    box.replaceChildren();
+    box.hidden = true;
+  }
+
+  byId("close-apps").addEventListener("click", closeApps);
 
   function openTools(id) {
     return api("GET", "/api/assistants/" + encodeURIComponent(id) + "/tools")

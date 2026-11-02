@@ -1,0 +1,443 @@
+/* Styles for Gatehouse: the Postern run renderer and the host blocks.
+ *
+ * The scripts draw `run-*` classes (the run page) and `gh-*` classes (the
+ * blocks a host draws from its own data) and carry no CSS of their own, so a
+ * page that mounts either links this file. Every class they emit has a rule
+ * here, which `tests/stylesheet.test.js` checks.
+ *
+ * Colours are custom properties on `.run-shell` and `.gh-block`, the root of
+ * every block: each `--run-*` reads a host's `--sx-*` token when the page
+ * defines one and falls back to the value beside it, so the stylesheet works
+ * alone and a host can theme it. Light values are unprefixed; dark ones sit
+ * under `[data-theme="dark"]` on any ancestor.
+ */
+
+.run-shell, .gh-block {
+  --run-line: var(--sx-line, #E6E8EE);
+  --run-surface: var(--sx-surface, #FFFFFF);
+  --run-surface-2: var(--sx-surface-2, #F7F8FB);
+  --run-text: var(--sx-text, #0E1320);
+  --run-text-2: var(--sx-text-2, #4B5263);
+  --run-text-3: var(--sx-text-3, #616879);
+  --run-brand: var(--sx-brand, #2A33C4);
+  --run-brand-text: var(--sx-brand-text, #1A1F6B);
+  /* Fills, for borders and bars. A status fill is too light to be read as
+     words on a light surface: --sx-ok's #1F9D55 measured 3.49:1 as a tick's
+     ink on white, and --sx-danger's #DC2C50 4.38:1 on --sx-surface-2. */
+  --run-ok: var(--sx-ok, #1F9D55);
+  --run-warn: var(--sx-warn, #C77800);
+  --run-danger: var(--sx-danger, #DC2C50);
+  /* Inks, for words: a host's -text token where it has one, and fallbacks
+     that read 6.57:1, 6.09:1 and 6.48:1 on white. */
+  --run-ok-text: var(--sx-ok-text, #146B3A);
+  --run-warn-text: var(--sx-warn-text, #8C5600);
+  --run-danger-text: var(--sx-danger-text, #B3243F);
+  --run-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--run-text);
+}
+.run-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-areas: "head rail" "conversation rail" "form rail" "controls rail" "output rail";
+  gap: 0 24px;
+  align-items: start;
+}
+@media (max-width: 960px) {
+  .run-shell { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "rail" "conversation" "form" "controls" "output"; }
+}
+/* Stated here rather than left to a host's reset, which a page linking only
+ * this file does not have. A browser draws `select` border-box and `input` and
+ * `textarea` content-box, so without it a full-width field spills past its card
+ * by its own padding and border while the select beside it fits. */
+.run-shell, .run-shell *, .run-shell *::before, .run-shell *::after,
+.gh-block, .gh-block *, .gh-block *::before, .gh-block *::after { box-sizing: border-box; }
+
+/* ---------- header ---------- */
+.run-header { grid-area: head; margin-bottom: 18px; }
+/* `.run-title` is the class the renderer actually emits; the element selectors
+ * beside it are what styled it before, and they stay because they also catch a
+ * heading a future screen puts in this band. Naming the class is what lets the
+ * stylesheet contract test see that this heading is covered — it was styled by
+ * element only, so the guard reported it unstyled the moment its scan learned
+ * to read `el('h1', …)`. */
+.run-header h1, .run-header h2, .run-title { font-size: 22px; font-weight: 660; margin: 0 0 6px; letter-spacing: -0.02em; }
+.run-summary { color: var(--run-text-2); margin: 0; max-width: 64ch; }
+.run-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+/* Shown verbatim: the identifier is what an operator types into `.env` and
+ * what the runner prints at boot. One spelling, as given. */
+.run-agent-id, .run-version {
+  font-family: var(--run-mono); font-size: 11.5px; color: var(--run-text-2);
+  background: var(--run-surface-2); border: 1px solid var(--run-line);
+  padding: 4px 9px; border-radius: 7px;
+}
+/* An empty chip is a real state rather than a preview artifact: a bundle's
+ * `postern.json` deliberately carries no `agent.id` — the runner fills it from
+ * the environment, so a stale document can never drive a check for the wrong
+ * listing — and a client reading that document straight off disk has nothing
+ * to print. Same `:empty` idiom the timeline, result and usage rows use. */
+.run-agent-id:empty, .run-version:empty { display: none; }
+
+/* ---------- readiness rail ---------- */
+.run-readiness {
+  grid-area: rail;
+  background: var(--run-surface); border: 1px solid var(--run-line);
+  border-radius: 14px; padding: 16px;
+}
+.run-state { font-size: 12px; color: var(--run-text-2); margin: 0 0 4px; font-weight: 600; }
+.run-level, .run-limit, .run-update { font-size: 11.5px; color: var(--run-text-3); margin: 0 0 8px; }
+.run-entitlement { padding: 11px 13px; border-radius: 10px; font-size: 12.5px; line-height: 1.5; margin: 12px 0; border: 1px solid var(--run-line); background: var(--run-surface-2); color: var(--run-text-2); }
+.run-entitlement--quiet { color: var(--run-text-3); }
+.run-entitlement--caution { border-color: var(--run-warn); }
+.run-entitlement--blocked { border-color: var(--run-danger); color: var(--run-text); }
+
+/* One credential is a flat run of inline siblings - `<code>` for the name,
+ * then a span carrying the *words* "set" / "not set", then the purpose, then
+ * an optional link. Laying the item out as a grid puts each sibling in its own
+ * cell and wraps the purpose one word per line; it has to stay an inline flow.
+ * `run-credential-where` is a sibling of the list, not of these. */
+.run-credentials { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 8px; }
+.run-credential { font-size: 12.5px; line-height: 1.5; }
+.run-credential-env { font-family: var(--run-mono); font-size: 11.5px; color: var(--run-text); }
+/* Both states stated, neither inherited. A satisfied key that is only green
+ * because the default happens to be green converges with a missing one the
+ * moment the default moves, and the two are the whole point of the list. */
+.run-credential-tick { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--run-text-3); }
+.run-credential.is-satisfied .run-credential-tick { color: var(--run-ok-text); }
+.run-credential.is-missing .run-credential-tick { color: var(--run-danger-text); }
+.run-credential-purpose { font-size: 11.5px; color: var(--run-text-3); }
+.run-credential-where { font-size: 11.5px; color: var(--run-text-2); margin: 0 0 10px; }
+/* The words around it, underlined. Left to the browser, a link is its own
+ * blue, which reads 1.9:1 on the dark surface. */
+.run-credential-link { font-size: 11.5px; margin-left: 6px; color: inherit; }
+
+.run-tools { margin: 0 0 8px; }
+.run-tool-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 5px; }
+.run-tool { font-family: var(--run-mono); font-size: 11px; color: var(--run-text-3); }
+.run-tool::after { content: ","; }
+.run-tool:last-child::after { content: ""; }
+
+/* ---------- templates ---------- */
+.run-templates { grid-area: head; align-self: end; }
+/* Genuinely unstyled until now, and it is an `<h2>`, so it rendered at the
+ * browser's default 1.5em directly above a row of 12.5px chips. Found by the
+ * same widened scan as `.run-title` — the guard could not see either, because
+ * its regex required a tag name of letters only and both are `h`-plus-digit. */
+.run-templates-title { font-size: 12px; font-weight: 600; color: var(--run-text-3); margin: 0 0 8px; text-transform: none; }
+.run-template-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.run-template-chip {
+  font: inherit; font-size: 12.5px; cursor: pointer; min-height: 0;
+  background: var(--run-surface); border: 1px solid var(--run-line);
+  color: var(--run-text-2); border-radius: 999px; padding: 6px 13px;
+}
+.run-template-chip:hover { color: var(--run-text); border-color: var(--run-brand); }
+.run-template-output { margin-top: 10px; font-size: 12px; color: var(--run-text-3); }
+.run-template-output-body { white-space: pre-wrap; font-size: 12.5px; color: var(--run-text-2); margin-top: 4px; }
+
+/* ---------- form ---------- */
+.run-form { grid-area: form; background: var(--run-surface); border: 1px solid var(--run-line); border-radius: 14px; overflow: hidden; }
+.run-field { padding: 14px 16px; }
+.run-field + .run-field { border-top: 1px solid var(--run-line); }
+.run-field-label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.run-field-control {
+  width: 100%; font: inherit; font-size: 14px; color: var(--run-text);
+  background: var(--run-surface-2); border: 1px solid var(--run-line);
+  border-radius: 10px; padding: 9px 11px; min-height: 0;
+}
+.run-field-control--large { min-height: 88px; resize: vertical; line-height: 1.5; }
+.run-field-control:focus { outline: 2px solid var(--run-brand); outline-offset: -1px; }
+.run-field-control.is-invalid { border-color: var(--run-danger); }
+.run-field-note { font-size: 11.5px; color: var(--run-text-3); margin: 6px 0 0; }
+/* The seller's own help text, not the client's. Sits a step darker
+ * than `.run-field-note` because a note is this page apologising for something
+ * it could not honour, and this is the listing telling the buyer what to
+ * write — they should not read as the same voice. */
+.run-field-help { font-size: 12.5px; color: var(--run-text-2); margin: 6px 0 0; max-width: 64ch; }
+
+/* ---------- conversation ----------
+ *
+ * Above the form, oldest first, so the newest answer sits just over the box
+ * the reply is typed into. A page that asked for no conversation draws no
+ * section, and its grid row is empty and takes no height. */
+.run-conversation { grid-area: conversation; margin-bottom: 18px; min-width: 0; }
+.run-conversation[hidden] { display: none; }
+.run-turns { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.run-turn {
+  background: var(--run-surface); border: 1px solid var(--run-line);
+  border-radius: 14px; padding: 14px 16px; min-width: 0;
+}
+.run-turn-who {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--run-text-3); margin: 0 0 4px;
+}
+/* What the reader typed, as typed: their line breaks kept, and a long word
+ * (a URL, a key) broken rather than pushing the card wider than its column. */
+.run-turn-brief {
+  white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 14px;
+  font-size: 14px; line-height: 1.55; color: var(--run-text-2);
+}
+.run-turn-answer { font-size: 14px; line-height: 1.62; overflow-wrap: anywhere; min-width: 0; }
+.run-turn-text { white-space: pre-wrap; margin: 0; max-width: 72ch; }
+.run-turn-answer .run-download { margin-top: 10px; }
+.run-conversation-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 10px; }
+.run-conversation-note { font-size: 12px; color: var(--run-text-3); margin: 0; max-width: 64ch; flex: 1 1 260px; }
+.run-conversation-reset {
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  border-radius: 10px; padding: 0 12px; height: 32px; min-height: 0;
+  background: var(--run-surface); color: var(--run-text); border: 1px solid var(--run-line);
+}
+.run-conversation-reset:disabled { opacity: 0.45; cursor: not-allowed; }
+/* A host may floor every button at 44px for a thumb; given back here, after
+ * the opt-out above, for the same reason the write gate's box is. */
+@media (pointer: coarse) {
+  .run-conversation-reset { min-height: 44px; }
+}
+
+/* ---------- controls ---------- */
+.run-controls { grid-area: controls; margin-top: 18px; }
+.run-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.run-go, .run-stop, .run-retry, .run-download {
+  font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
+  border-radius: 10px; padding: 0 16px; height: 38px; min-height: 0;
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid transparent; text-decoration: none;
+}
+.run-go { background: var(--run-brand); color: #FFFFFF; }
+.run-stop, .run-retry, .run-download { background: var(--run-surface); color: var(--run-text); border-color: var(--run-line); }
+.run-go:disabled, .run-stop:disabled, .run-retry:disabled { opacity: 0.45; cursor: not-allowed; }
+.run-go[hidden], .run-stop[hidden], .run-retry[hidden], .run-download[hidden] { display: none; }
+
+.run-write-gate { display: flex; gap: 9px; align-items: flex-start; margin-top: 12px; max-width: 64ch; }
+.run-write-label { font-size: 12.5px; color: var(--run-text-2); cursor: pointer; }
+/* A host's stylesheet may floor every input at `min-height: 44px`, site-wide and
+ * outside any media query, and `min-height` beats `height` — so without this
+ * the box renders 44px tall and sits half a line below its own sentence. */
+.run-write-check { margin: 2px 0 0; flex: none; width: 15px; height: 15px; min-height: 0; }
+/* Given back where the floor exists for a reason. Declared *after* the opt-out:
+ * a media query contributes no specificity, so these two tie on identical
+ * selectors and document order alone decides. Fold this block upward and the
+ * opt-out silently wins under a thumb too. */
+@media (pointer: coarse) {
+  .run-write-check { width: 22px; height: 22px; min-height: 22px; }
+}
+.run-retry-note, .run-notice { font-size: 12px; color: var(--run-text-3); margin: 10px 0 0; max-width: 64ch; }
+
+/* ---------- output ---------- */
+.run-output { grid-area: output; margin-top: 22px; border: 1px solid var(--run-line); border-radius: 14px; background: var(--run-surface); padding: 16px; }
+.run-timeline { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 1px; background: var(--run-line); border: 1px solid var(--run-line); border-radius: 10px; overflow: hidden; }
+.run-timeline:empty { display: none; }
+.run-timeline-entry { background: var(--run-surface); padding: 9px 12px; font-family: var(--run-mono); font-size: 12px; color: var(--run-text-2); }
+.run-result { white-space: pre-wrap; font-size: 14px; line-height: 1.62; max-height: 380px; overflow: auto; }
+.run-result:empty { display: none; }
+
+/* The composed result, in the `markdown` output mode. A second node
+ * beside `.run-result` rather than a mode switch on it: the `<pre>` is what a
+ * stream fills token by token, and `<pre>` takes phrasing content only, so
+ * headings and lists cannot be built inside it. Both are capped at the same
+ * height, or one mode scrolls its panel and the other grows it. */
+.run-result-rendered { font-size: 14px; line-height: 1.62; max-height: 380px; overflow: auto; }
+.run-result-rendered:empty { display: none; }
+.run-md-heading { font-size: 15px; font-weight: 650; color: var(--run-text); margin: 16px 0 6px; }
+.run-md-heading:first-child { margin-top: 0; }
+.run-md-paragraph { margin: 0 0 10px; max-width: 72ch; }
+.run-md-list { margin: 0 0 10px; padding-left: 20px; max-width: 72ch; }
+.run-md-item { margin: 0 0 3px; }
+/* Never highlighted, and never `white-space: pre-wrap`. This is a fenced block
+ * an agent emitted, so it is shown exactly as it arrived — wrapping it would
+ * change what a buyer copies. */
+.run-md-code {
+  white-space: pre; overflow-x: auto; margin: 0 0 12px;
+  font-family: var(--run-mono); font-size: 12.5px; line-height: 1.55;
+  background: var(--run-surface-2); border: 1px solid var(--run-line);
+  border-radius: 10px; padding: 10px 12px;
+}
+.run-usage { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--run-text-3); margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--run-line); }
+.run-usage:empty { display: none; }
+.run-refuse { border-left: 3px solid var(--run-danger); padding: 14px 16px; background: var(--run-surface-2); border-radius: 0 10px 10px 0; margin: 0; font-size: 13.5px; }
+
+/* ---------- host blocks ----------
+ *
+ * Drawn from a host's own data rather than from a runner, and themed through
+ * the same tokens. Each block's root carries `.gh-block`, which declares them,
+ * so a block works alone on a page that has no `.run-shell`. */
+
+.gh-refuse { border-left: 3px solid var(--run-danger); padding: 12px 14px; background: var(--run-surface-2); border-radius: 0 10px 10px 0; margin: 0; font-size: 13px; color: var(--run-text); }
+.gh-note, .gh-empty { font-size: 12.5px; color: var(--run-text-3); margin: 10px 0 0; max-width: 72ch; }
+.gh-empty { margin: 0; }
+
+/* A state or an outcome: the words carry it, in the status ink, and a dot of
+ * the status fill sits before them. Neither the colour nor the dot is the
+ * only way to tell one from another. */
+.gh-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--run-text-3); white-space: nowrap; }
+.gh-status::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--run-text-3); }
+.gh-status--ok { color: var(--run-ok-text); }
+.gh-status--ok::before { background: var(--run-ok); }
+.gh-status--caution { color: var(--run-warn-text); }
+.gh-status--caution::before { background: var(--run-warn); }
+.gh-status--blocked { color: var(--run-danger-text); }
+.gh-status--blocked::before { background: var(--run-danger); }
+.gh-status--quiet { color: var(--run-text-3); }
+
+/* ---------- an app ---------- */
+.gh-app {
+  display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  background: var(--run-surface); border: 1px solid var(--run-line);
+  border-radius: 14px; padding: 16px;
+}
+.gh-app-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; }
+/* An app's name is its author's, and may be one long word. */
+.gh-app-name { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.gh-app-summary { font-size: 13px; line-height: 1.5; color: var(--run-text-2); margin: 0; overflow-wrap: anywhere; }
+.gh-app-by { font-size: 12px; color: var(--run-text-3); margin: 0; }
+/* The run page's credential row, in the card: an inline flow, for the same
+ * reason as `.run-credential`. */
+.gh-app-keys { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.gh-app-key { font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.gh-app-key-env { font-family: var(--run-mono); font-size: 11.5px; color: var(--run-text); }
+.gh-app-key-tick { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--run-danger-text); }
+.gh-app-key-purpose { font-size: 11.5px; color: var(--run-text-3); }
+.gh-app-key-link { font-size: 11.5px; margin-left: 6px; color: inherit; }
+.gh-app-meta { font-size: 12px; color: var(--run-text-3); margin: 0; }
+.gh-app-open {
+  align-self: flex-start; margin-top: 4px;
+  display: inline-flex; align-items: center; height: 34px; padding: 0 14px;
+  font-size: 13px; font-weight: 600; text-decoration: none;
+  color: var(--run-text); background: var(--run-surface);
+  border: 1px solid var(--run-line); border-radius: 10px;
+}
+.gh-app-open:hover { border-color: var(--run-brand); }
+.gh-app-open:focus-visible { outline: 2px solid var(--run-brand); outline-offset: 2px; }
+
+.gh-app-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 14px; }
+.gh-app-item { display: flex; min-width: 0; }
+.gh-app-item > .gh-app { flex: 1 1 auto; }
+.gh-apps { min-width: 0; }
+
+/* ---------- tables ---------- */
+/* A table is as wide as its columns, so it scrolls inside its own box rather
+ * than pushing a phone's page sideways. `contain: inline-size` is what makes
+ * that hold inside a host's grid or flex row too: without it the box still
+ * reports the table's width as its own smallest, and a host column sized to
+ * its content grows to fit the table, page and all. */
+.gh-table-scroll { overflow-x: auto; max-width: 100%; contain: inline-size; border: 1px solid var(--run-line); border-radius: 12px; background: var(--run-surface); }
+.gh-table-scroll:focus-visible { outline: 2px solid var(--run-brand); outline-offset: 2px; }
+.gh-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+/* Inside its scroll box a table keeps a readable width and scrolls, rather
+ * than squeezing an app's name and a run's sentence a word to a line. */
+.gh-table-scroll > .gh-table { min-width: 34rem; }
+.gh-table-scroll > .gh-table--wide { min-width: 46rem; }
+.gh-table-head { text-align: left; font-size: 11.5px; font-weight: 600; color: var(--run-text-2); padding: 9px 12px; border-bottom: 1px solid var(--run-line); white-space: nowrap; background: var(--run-surface-2); }
+.gh-table-cell { padding: 9px 12px; color: var(--run-text); vertical-align: top; border-top: 1px solid var(--run-line); }
+tbody tr:first-child > .gh-table-cell { border-top: 0; }
+.gh-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gh-table-total > .gh-table-cell { font-weight: 600; border-top: 1px solid var(--run-line); }
+.gh-runs { min-width: 0; }
+/* One line a cell, so a phone scrolls the table rather than stacking an app's
+ * name a word to a line; only the host's sentence about a run wraps. */
+.gh-run > .gh-table-cell { white-space: nowrap; }
+.gh-run > .gh-table-cell:first-child { color: var(--run-text-2); }
+.gh-run-detail { display: block; margin-top: 3px; font-size: 11.5px; color: var(--run-text-3); white-space: normal; min-width: 24ch; max-width: 40ch; }
+
+/* ---------- usage ---------- */
+.gh-usage { display: grid; gap: 16px; min-width: 0; }
+.gh-usage-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.gh-usage-title { font-size: 16px; font-weight: 650; margin: 0; }
+.gh-usage-dates { font-size: 12px; color: var(--run-text-3); margin: 0; }
+/* Four figures in a row, and two by two on a phone. A tile's figure keeps the
+ * font's own proportional digits: it stands alone, and even-width digits make
+ * a large number look loose. */
+.gh-usage-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 10px; margin: 0; }
+.gh-usage-stat { background: var(--run-surface); border: 1px solid var(--run-line); border-radius: 12px; padding: 12px 14px; margin: 0; min-width: 0; }
+.gh-usage-label { font-size: 12px; color: var(--run-text-2); margin: 0; }
+.gh-usage-value { font-size: 22px; font-weight: 640; letter-spacing: -0.02em; color: var(--run-text); margin: 4px 0 0; }
+.gh-usage-note { font-size: 11.5px; color: var(--run-text-3); margin: 2px 0 0; }
+
+.gh-caps { display: grid; gap: 12px; }
+.gh-cap { display: grid; gap: 6px; }
+.gh-cap-label { font-size: 12.5px; color: var(--run-text-2); margin: 0; }
+/* The track is a lighter step of the fill's own colour, so the share reads
+ * across the whole bar; the fill turns to the warning and then the danger
+ * colour as the cap nears, and the sentence above says so in words. */
+.gh-meter { --gh-meter-fill: var(--run-brand); height: 8px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--gh-meter-fill) 18%, var(--run-surface)); }
+.gh-meter--clear { --gh-meter-fill: var(--run-brand); }
+.gh-meter--near { --gh-meter-fill: var(--run-warn); }
+.gh-meter--full { --gh-meter-fill: var(--run-danger); }
+.gh-meter-fill { display: block; height: 100%; border-radius: 999px; background: var(--gh-meter-fill); }
+
+/* Runs per day: one series, so one colour and no legend; columns no wider than
+ * 24px with 2px of surface between them, rounded at the data end and square
+ * on the baseline. */
+.gh-days { margin: 0; min-width: 0; }
+.gh-days-title { font-size: 12.5px; font-weight: 600; color: var(--run-text-2); margin: 0 0 8px; }
+.gh-days-plot { position: relative; padding-top: 20px; }
+.gh-days-max { position: absolute; top: 0; left: 0; font-size: 11px; color: var(--run-text-3); }
+/* Spread across the plot, so the first and last days sit over the axis's
+ * first and last labels whatever the number of days. */
+.gh-days-bars { list-style: none; margin: 0; padding: 0; height: 96px; display: flex; align-items: flex-end; justify-content: space-between; gap: 2px; border-bottom: 1px solid var(--run-line); }
+.gh-day { position: relative; flex: 0 1 24px; min-width: 0; height: 100%; display: flex; align-items: flex-end; }
+.gh-day-bar { display: block; width: 100%; background: var(--run-brand); border-radius: 4px 4px 0 0; }
+.gh-day:hover .gh-day-bar { opacity: 0.72; }
+.gh-day-tip {
+  display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 1;
+  white-space: nowrap; font-size: 11.5px; color: var(--run-text);
+  background: var(--run-surface); border: 1px solid var(--run-line); border-radius: 8px; padding: 4px 8px;
+}
+.gh-day:hover .gh-day-tip { display: block; }
+.gh-days-axis { display: flex; justify-content: space-between; gap: 12px; margin-top: 4px; }
+.gh-days-axis-label { font-size: 11px; color: var(--run-text-3); }
+.gh-days-table { margin-top: 8px; font-size: 12px; }
+.gh-days-table > .gh-table { margin-top: 8px; border: 1px solid var(--run-line); }
+.gh-days-table-toggle { cursor: pointer; color: var(--run-text-2); }
+
+/* ---------- a playbook ----------
+ *
+ * Its files in order, then its placeholders. A path, a token and a label are
+ * someone's typing and may be one long word, so each wraps anywhere rather
+ * than pushing the block past a phone's edge. */
+.gh-playbook { display: grid; gap: 22px; min-width: 0; }
+.gh-playbook-part { display: grid; gap: 8px; min-width: 0; }
+.gh-playbook-heading { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; margin: 0; }
+.gh-playbook-subheading { font-size: 12.5px; font-weight: 600; color: var(--run-text-2); margin: 8px 0 0; }
+.gh-playbook-lead { font-size: 12.5px; line-height: 1.5; color: var(--run-text-2); margin: 0; max-width: 72ch; }
+/* The browser's own numbers, so each file keeps its place in the order
+ * however its row wraps. A list item laid out as a flex row is drawn with no
+ * number, so the row's parts sit in a box of their own. */
+.gh-playbook-files { margin: 0; padding: 0 0 0 1.8em; }
+.gh-playbook-file { padding: 9px 0; border-top: 1px solid var(--run-line); min-width: 0; }
+.gh-playbook-file:first-child { border-top: 0; }
+.gh-playbook-file::marker { font-size: 12px; color: var(--run-text-3); font-variant-numeric: tabular-nums; }
+.gh-playbook-file-body { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.gh-playbook-path { font-family: var(--run-mono); font-size: 12.5px; color: var(--run-text); min-width: 0; overflow-wrap: anywhere; }
+.gh-playbook-role {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: var(--run-text-2); white-space: nowrap;
+  background: var(--run-surface-2); border: 1px solid var(--run-line); border-radius: 999px; padding: 1px 8px;
+}
+/* A sentence of its own under the path, on a line the flex row gives it. */
+.gh-playbook-about, .gh-playbook-note { flex: 1 1 100%; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.gh-playbook-about { color: var(--run-text-3); }
+.gh-playbook-note { color: var(--run-text-2); }
+.gh-playbook-slot-group { display: grid; gap: 6px; min-width: 0; }
+.gh-playbook-slots { margin: 0; display: grid; gap: 6px; }
+.gh-playbook-slot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; min-width: 0; }
+.gh-playbook-slot-name { margin: 0; min-width: 0; }
+.gh-playbook-token {
+  font-family: var(--run-mono); font-size: 12px; color: var(--run-text); overflow-wrap: anywhere;
+  background: var(--run-surface-2); border: 1px solid var(--run-line); border-radius: 6px; padding: 1px 6px;
+}
+.gh-playbook-slot-label { margin: 0; flex: 1 1 16ch; min-width: 0; font-size: 12.5px; line-height: 1.5; color: var(--run-text-2); overflow-wrap: anywhere; }
+
+[data-theme="dark"] .run-shell, [data-theme="dark"] .gh-block {
+  --run-line: var(--sx-line, #232936);
+  --run-surface: var(--sx-surface, #14181F);
+  --run-surface-2: var(--sx-surface-2, #1A1F28);
+  --run-text: var(--sx-text, #E7EAF0);
+  --run-text-2: var(--sx-text-2, #AAB2C0);
+  --run-text-3: var(--sx-text-3, #858DA0);
+  --run-brand: var(--sx-brand, #3D4DFF);
+  --run-brand-text: var(--sx-brand-text, #A9B4FF);
+  --run-ok: var(--sx-ok, #6EE7A1);
+  --run-warn: var(--sx-warn, #F5B454);
+  --run-danger: var(--sx-danger, #F47B7B);
+  --run-ok-text: var(--sx-ok-text, #6EE7A1);
+  --run-warn-text: var(--sx-warn-text, #F5B454);
+  --run-danger-text: var(--sx-danger-text, #F47B7B);
+}

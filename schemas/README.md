@@ -59,6 +59,14 @@ A client asks before a write. It treats as a write any tool missing from its
 server's declaration, and every tool of a server missing from `tools`, so a
 writer that declares nothing gets asked about everything rather than nothing.
 
+A solution may carry apps, each a crew in its own folder, `apps/<name>/`: a
+Postern bundle with `postern.json` (its `describe`), `config/agents.yaml`,
+`config/tasks.yaml`, `requirements.txt`, and `ui.json` when its screen is
+composed. Format 0.1 has no member for apps; a reader finds them by folder. An
+app's `.env` is never read from a package. Bailey fills a text input an app
+declares under the key `passages` with what the assistant's documents hold for
+the run, and keeps it off the app's form.
+
 A knowledge slot may come with a made-up example of the document it asks for,
 `samples/<name>.<extension>`, named by the slot and in one of the types it
 accepts, so a person can try the solution before giving their own. Bailey

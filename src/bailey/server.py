@@ -39,7 +39,7 @@ import time
 import uuid
 import webbrowser
 from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from importlib import resources
 from pathlib import Path
 from types import FrameType
@@ -56,6 +56,24 @@ from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from bailey import __version__
+from bailey.apps import (
+    APPS_NOTICE,
+    ENVIRONMENT_DISK_MB,
+    ENVIRONMENT_DOWNLOAD_MB,
+    PASSAGES_INPUT,
+    AppFailed,
+    AppHost,
+    Environments,
+    VirtualEnvironments,
+    app_folder,
+    describe_of,
+    passages_input,
+    provider_note,
+    read_app_files,
+    remove_apps,
+    requirements_of,
+    write_apps,
+)
 from bailey.conversations import notice_record, pending, shown, shown_text, to_history, to_records, user_record
 from bailey.core import load as load_core
 from bailey.keys import (
@@ -83,6 +101,7 @@ from bailey.knowledge import (
     cited,
     extension_of,
     mode,
+    passage_text,
     search,
     whole_text,
 )
@@ -108,6 +127,7 @@ from bailey.solutions import (
     SolutionRefused,
     assistant_from_form,
     form_of,
+    read_apps,
     read_solution,
     template,
     template_ids,
@@ -145,14 +165,27 @@ _SECURITY_HEADER_NAMES = frozenset(name for name, _ in SECURITY_HEADERS)
 LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "[::1]"})
 
 #: The static files the page loads, each with its type. Nothing else is served from disk.
+#: Gatehouse, which draws an app's run page, is a vendored release (``web/gatehouse/``).
 STATIC_FILES: Mapping[str, str] = {
     "app.js": "text/javascript; charset=utf-8",
     "app.css": "text/css; charset=utf-8",
     "icon.svg": "image/svg+xml",
+    "gatehouse/postern_client.js": "text/javascript; charset=utf-8",
+    "gatehouse/run_view_model.js": "text/javascript; charset=utf-8",
+    "gatehouse/refusal_copy.js": "text/javascript; charset=utf-8",
+    "gatehouse/run_renderer.js": "text/javascript; charset=utf-8",
+    "gatehouse/gatehouse.css": "text/css; charset=utf-8",
 }
 
 #: The only paths answered without the token: the page and its static files.
 PUBLIC_PATHS = frozenset({"/", *(f"/static/{name}" for name in STATIC_FILES)})
+
+#: An app's four Postern verbs, each with its method.
+POSTERN_VERBS = {"describe": "GET", "status": "GET", "run": "POST", "stream": "POST"}
+#: A run's body, as a runner takes it (Postern §2.2).
+MAX_RUN_BODY = 1024 * 1024
+#: The most of an assistant's documents an app's ``passages`` input carries, in characters.
+MAX_PASSAGES_CHARACTERS = 400_000
 
 #: No request Bailey's page sends is near this, but a message, which may carry a document.
 MAX_BODY = 64 * 1024
@@ -190,6 +223,11 @@ class AppState:
     tools: ToolHost = field(default_factory=ToolHost)
     #: The search model; made from the data folder on first use, and handed in by the tests.
     embedder: Embedder | None = None
+    #: Where each app's Python comes from (bailey.apps); made from the data folder on
+    #: first use, and handed in by the tests.
+    environments: Environments | None = None
+    #: Each open app's runner, started when its page opens.
+    app_host: AppHost | None = None
 
 
 class Refusal(Exception):
@@ -377,6 +415,7 @@ def _assistants_view(state: AppState) -> dict[str, Any]:
                 "skills": [skill["name"] for skill in record.get("skills") or []],
                 "starters": list(record.get("starters") or []),
                 "servers": [server["name"] for server in record.get("servers") or []],
+                "apps": [app["title"] for app in record.get("apps") or []],
             }
         )
     templates = []
@@ -466,6 +505,70 @@ def _download_first(made: Assistant, provider: str) -> str:
         f"Face: {MINILM.label}, about {MINILM.download_mb} MB. Download it under Assistants, in {made.title}'s "
         "Documents."
     )
+
+
+def _environments(state: AppState) -> Environments:
+    if state.environments is None:
+        state.environments = VirtualEnvironments(state.data_folder / "environments")
+    return state.environments
+
+
+def _app_host(state: AppState) -> AppHost:
+    if state.app_host is None:
+        state.app_host = AppHost(_environments(state))
+    return state.app_host
+
+
+def _apps_view(state: AppState, assistant_id: str, made: Assistant) -> dict[str, Any]:
+    """The assistant's Apps panel: each app, whether its environment is built, and whether the provider fits it."""
+
+    provider = str(state.store.get_setting("provider") or "")
+    environments = _environments(state)
+    host = _app_host(state)
+    apps = []
+    for app in made.apps:
+        folder = app_folder(state.data_folder, assistant_id, app.name)
+        environment, why = environments.state(requirements_of(folder))
+        apps.append(
+            {
+                "name": app.name,
+                "title": app.title,
+                "summary": app.summary,
+                "ui": app.ui,
+                "environment": environment,
+                "why": why,
+                "provider_note": provider_note(describe_of(folder), provider),
+                "running": host.running(assistant_id, app.name),
+            }
+        )
+    return {
+        "id": assistant_id,
+        "apps": apps,
+        "download_mb": ENVIRONMENT_DOWNLOAD_MB,
+        "disk_mb": ENVIRONMENT_DISK_MB,
+        "notice": APPS_NOTICE if made.apps else "",
+    }
+
+
+def _app_passages(state: AppState, assistant_id: str, made: Assistant, provider: str, prompt: str, limit: int) -> str:
+    """The passages the assistant's documents hold for an app's run, numbered as in chat, whole passages only."""
+
+    documents = _documents_for(state, assistant_id, made, provider)
+    if documents is None:
+        return ""
+    if documents.mode == "whole":
+        found = [passage for passage in state.store.passages(assistant_id) if passage["kind"] != "reference"]
+    else:
+        found = documents.search(prompt) if documents.search is not None and prompt.strip() else []
+    pieces: list[str] = []
+    used = 0
+    for passage in found:
+        text = passage_text(passage)
+        if used + len(text) + 2 > limit:
+            break
+        pieces.append(text)
+        used += len(text) + 2
+    return "\n\n".join(pieces)
 
 
 def _documents_for(state: AppState, assistant_id: str, made: Assistant, provider: str) -> Documents | None:
@@ -626,8 +729,14 @@ def _file_keys(state: AppState) -> EncryptedFileKeys:
     return state.keys
 
 
+def _postern_error(status: int, code: str, message: str) -> JSONResponse:
+    """An answer in Postern's error envelope, which Gatehouse shows as the runner's own."""
+
+    return JSONResponse({"error": {"code": code, "message": message}}, status_code=status)
+
+
 def _read_web(name: str) -> bytes:
-    return resources.files("bailey").joinpath("web", name).read_bytes()
+    return resources.files("bailey").joinpath("web", *name.split("/")).read_bytes()
 
 
 def build_app(state: AppState) -> ASGIApp:
@@ -759,15 +868,26 @@ def build_app(state: AppState) -> ASGIApp:
     @_answers
     async def import_assistant(request: Request) -> Response:
         data = await _read_body(request, MAX_PACKAGE_BYTES)
-        made = read_solution(unzip_solution(data))
+        files = unzip_solution(data)
+        made = read_solution(files)
+        _, left_out = read_apps(files)
 
         def save() -> dict[str, Any]:
             _ensure_an_assistant(state)
             assistant_id = uuid.uuid4().hex
             state.store.put_assistant(assistant_id, made.as_dict())
             # A solution with tool servers runs programs on this computer, and the person
-            # is told so as it arrives (design §4).
-            notice = SANDBOX_NOTICE if any(not server.remote for server in made.servers) else ""
+            # is told so as it arrives (design §4). So does a solution with apps.
+            notices = [SANDBOX_NOTICE] if any(not server.remote for server in made.servers) else []
+            if made.apps:
+                write_apps(state.data_folder, assistant_id, made.apps)
+                notices.append(APPS_NOTICE)
+            if left_out:
+                notices.append(
+                    f"Left out of its apps: {', '.join(left_out)}. A package's .env would carry its seller's keys "
+                    "or a listing's id, and Bailey gives an app your provider's key itself."
+                )
+            notice = " ".join(notices)
             # The seller's reference files are kept for search too (design §3.7), so a large
             # one is found without its skill loaded. One Bailey cannot read stays with its skill.
             for skill in (made.instructions, *made.skills):
@@ -820,7 +940,16 @@ def build_app(state: AppState) -> ASGIApp:
 
     @_answers
     async def export_assistant(request: Request) -> Response:
-        made = await run_in_threadpool(_assistant, state, request.path_params["assistant_id"])
+        assistant_id = request.path_params["assistant_id"]
+
+        def gather() -> Assistant:
+            made = _assistant(state, assistant_id)
+            apps = tuple(
+                replace(app, files=read_app_files(state.data_folder, assistant_id, app.name)) for app in made.apps
+            )
+            return replace(made, apps=apps)
+
+        made = await run_in_threadpool(gather)
         return Response(
             zip_solution(made),
             media_type="application/zip",
@@ -845,6 +974,8 @@ def build_app(state: AppState) -> ASGIApp:
 
         view = await run_in_threadpool(delete)
         await state.tools.stop(assistant_id)
+        await _app_host(state).stop(assistant_id)
+        await run_in_threadpool(remove_apps, state.data_folder, assistant_id)
         return JSONResponse(view)
 
     # -- tools -------------------------------------------------------------------
@@ -1008,6 +1139,127 @@ def build_app(state: AppState) -> ASGIApp:
             return {"ready": embedder.ready(), "label": MINILM.label}
 
         return JSONResponse(await run_in_threadpool(fetch))
+
+    # -- apps ----------------------------------------------------------------------
+
+    @_answers
+    async def read_apps_panel(request: Request) -> Response:
+        assistant_id = request.path_params["assistant_id"]
+
+        def read() -> dict[str, Any]:
+            return _apps_view(state, assistant_id, _assistant(state, assistant_id))
+
+        return JSONResponse(await run_in_threadpool(read))
+
+    @_answers
+    async def prepare_app(request: Request) -> Response:
+        """Build an app's environment: the page asks the person, naming the download, before it calls this."""
+
+        assistant_id = request.path_params["assistant_id"]
+        name = request.path_params["name"]
+
+        def prepare() -> dict[str, Any]:
+            made = _assistant(state, assistant_id)
+            if made.app(name) is None:
+                raise Refusal(404, f"{made.title} has no app named {name}.")
+            _environments(state).prepare(requirements_of(app_folder(state.data_folder, assistant_id, name)))
+            return _apps_view(state, assistant_id, made)
+
+        return JSONResponse(await run_in_threadpool(prepare))
+
+    async def app_verb(request: Request) -> Response:
+        """One of an app's four Postern verbs, forwarded to its runner with the runner's own token.
+
+        Answered in Postern's error envelope, which Gatehouse reads, rather than Bailey's.
+        """
+
+        import httpx
+
+        assistant_id = request.path_params["assistant_id"]
+        name = request.path_params["name"]
+        verb = request.path_params["verb"]
+        if POSTERN_VERBS.get(verb) != request.method:
+            return _postern_error(404, "bad_request", f"Postern has no {request.method} {verb}.")
+        try:
+            made = await run_in_threadpool(_assistant, state, assistant_id)
+            if made.app(name) is None:
+                raise Refusal(404, f"{made.title} has no app named {name}.")
+            connection = await run_in_threadpool(_connection, state)
+            folder = app_folder(state.data_folder, assistant_id, name)
+            runner = await _app_host(state).runner(assistant_id, name, folder, connection, state.base_urls)
+        except Refusal as refused:
+            return _postern_error(refused.status, "unavailable", refused.message)
+        except AppFailed as failed:
+            return _postern_error(503, "unavailable", str(failed))
+        url = f"{runner.base}/postern/v0/{verb}"
+        headers = {"Authorization": f"Bearer {runner.token}"}
+        unreached = "The app's runner did not answer. Close the app and open it again."
+        if request.method == "GET":
+            try:
+                async with httpx.AsyncClient(timeout=30) as client:
+                    upstream = await client.get(url, headers=headers)
+            except httpx.HTTPError:
+                return _postern_error(503, "unavailable", unreached)
+            if verb == "describe" and upstream.status_code == 200:
+                # The passages input is Bailey's to fill, so the form never shows it.
+                document = upstream.json()
+                document["inputs"] = [
+                    item
+                    for item in document.get("inputs") or []
+                    if not (isinstance(item, dict) and item.get("key") == PASSAGES_INPUT)
+                ]
+                return JSONResponse(document)
+            return Response(upstream.content, status_code=upstream.status_code, media_type="application/json")
+        try:
+            body = json.loads(await _read_body(request, MAX_RUN_BODY) or b"{}")
+        except (Refusal, ValueError):
+            return _postern_error(400, "bad_request", "A run's body is a JSON object with its inputs, up to 1 MB.")
+        inputs = body.get("inputs") if isinstance(body, dict) else None
+        if not isinstance(inputs, dict):
+            return _postern_error(400, "bad_request", 'A run\'s body names its inputs: {"inputs": {...}}.')
+        declared = passages_input(describe_of(folder))
+        if declared is not None:
+            limit = int((declared.get("validation") or {}).get("max_length") or MAX_PASSAGES_CHARACTERS)
+            try:
+                inputs[PASSAGES_INPUT] = await run_in_threadpool(
+                    _app_passages,
+                    state,
+                    assistant_id,
+                    made,
+                    connection.provider,
+                    str(inputs.get("prompt") or ""),
+                    min(limit, MAX_PASSAGES_CHARACTERS),
+                )
+            except Refusal as refused:
+                return _postern_error(refused.status, "unavailable", refused.message)
+        headers["Content-Type"] = "application/json"
+        if request.headers.get("idempotency-key"):
+            headers["Idempotency-Key"] = request.headers["idempotency-key"]
+        client = httpx.AsyncClient(timeout=httpx.Timeout(None, connect=10))
+        try:
+            upstream = await client.send(
+                client.build_request("POST", url, json={"inputs": inputs}, headers=headers), stream=True
+            )
+        except httpx.HTTPError:
+            await client.aclose()
+            return _postern_error(503, "unavailable", unreached)
+        if verb == "run" or upstream.status_code != 200:
+            content = await upstream.aread()
+            await upstream.aclose()
+            await client.aclose()
+            kind = upstream.headers.get("content-type", "application/json")
+            return Response(content, status_code=upstream.status_code, media_type=kind)
+
+        async def relay() -> AsyncIterator[bytes]:
+            # A page that closes stops reading; closing the runner's stream then cancels the run.
+            try:
+                async for chunk in upstream.aiter_raw():
+                    yield chunk
+            finally:
+                await upstream.aclose()
+                await client.aclose()
+
+        return StreamingResponse(relay(), media_type="text/event-stream", headers={"X-Accel-Buffering": "no"})
 
     # -- conversations -----------------------------------------------------------
 
@@ -1242,14 +1494,16 @@ def build_app(state: AppState) -> ASGIApp:
         try:
             yield
         finally:
-            # Bailey's tool servers stop with it, rather than wait for their input to close.
+            # Bailey's tool servers and app runners stop with it, rather than run on.
             await state.tools.close()
+            if state.app_host is not None:
+                await state.app_host.close()
 
     app = Starlette(
         lifespan=lifespan,
         routes=[
             Route("/", index),
-            Route("/static/{name}", asset),
+            Route("/static/{name:path}", asset),
             Route("/api/status", read_status),
             Route("/api/settings", read_settings, methods=["GET"]),
             Route("/api/settings", write_settings, methods=["PUT"]),
@@ -1278,6 +1532,9 @@ def build_app(state: AppState) -> ASGIApp:
             Route("/api/assistants/{assistant_id}/knowledge/samples/{slot}", use_sample, methods=["POST"]),
             Route("/api/assistants/{assistant_id}/knowledge/{document_id}", remove_knowledge, methods=["DELETE"]),
             Route("/api/knowledge/model", fetch_model, methods=["POST"]),
+            Route("/api/assistants/{assistant_id}/apps", read_apps_panel),
+            Route("/api/assistants/{assistant_id}/apps/{name}/environment", prepare_app, methods=["POST"]),
+            Route("/api/assistants/{assistant_id}/apps/{name}/postern/v0/{verb}", app_verb, methods=["GET", "POST"]),
             Route("/api/grants", list_grants, methods=["GET"]),
             Route("/api/grants/revoke", revoke_grant, methods=["POST"]),
             Route("/api/conversations", list_conversations, methods=["GET"]),
