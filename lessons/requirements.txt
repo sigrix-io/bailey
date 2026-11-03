@@ -1,0 +1,8 @@
+# What recording a lesson needs beside Bailey itself, which installs from this checkout:
+#
+#   pip install -e ".[dev]" -r lessons/requirements.txt
+#   playwright install chromium
+#
+# and ffmpeg on the PATH. Pinned at the versions the lessons were last recorded with.
+playwright==1.63.0
+kokoro-onnx==0.6.1
