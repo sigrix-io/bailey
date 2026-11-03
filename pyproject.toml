@@ -45,14 +45,14 @@ dependencies = [
     "uvicorn>=0.54",
     "keyring>=25.7",
     "cryptography>=45",
-    "pydantic-ai-slim[anthropic,openai,mcp]==2.56.0",
-    "anthropic==1.13.0",
-    "openai==3.31.0",
-    "fastmcp-slim==4.1.0",
+    "pydantic-ai-slim[anthropic,openai,mcp]==2.63.0",
+    "anthropic==2.3.0",
+    "openai==3.41.0",
+    "fastmcp-slim==4.1.4",
     "mcp==2.3.0",
-    "markitdown[pdf,docx]==0.1.8",
-    "fastembed==0.9.0",
-    "onnxruntime==1.31.0",
+    "markitdown[pdf,docx]==0.1.9",
+    "fastembed==0.9.1",
+    "onnxruntime==1.31.1",
     "numpy==2.5.4; python_version >= '3.12'",
     "numpy==2.4.6; python_version < '3.12'",
     # Forwards an app's four Postern verbs to its runner (bailey.apps); the provider SDKs
@@ -64,7 +64,7 @@ dependencies = [
 dev = [
     "pytest>=8",
     "ruff>=0.6",
-    "mypy==2.4.0",
+    "mypy==2.4.1",
     # Validates the solution format's schema and its case table in the tests.
     "jsonschema>=4.23",
     # Starlette's TestClient, which drives the app in the tests.
