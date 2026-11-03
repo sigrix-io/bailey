@@ -6,16 +6,19 @@ The model is Bailey's own test emulator (``tests/emulated_providers.py``), which
 provider's wire protocol, so the app runs exactly as it does for a person: only the answers
 are scripted, so every recording of a lesson comes out the same, with no key and no cost.
 
-``replies.json`` lists the answers a lesson scripts. Each answers the message that contains
-its ``when``: it loads ``skill`` first when one is named, then answers with ``reply``, a list
-of ``[text, phrase]`` pairs, citing after a text the passage that holds its phrase, as Bailey
-asks a model to (``[P3]``), once per passage. Any other message gets the emulator's own answer.
+``replies.json`` lists the answers a lesson scripts, each for the message that contains its
+``when``. A reply loads ``skill`` first, when it names one; then makes its ``calls`` in
+order, each a ``{"tool": ..., "args": {...}}`` the app runs or asks the person about, one per
+turn as a model makes them; then answers with ``reply``, a list of ``[text, phrase]`` pairs,
+citing after a text the passage that holds its phrase, as Bailey asks a model to (``[P3]``),
+once per passage. Any other message gets the emulator's own answer.
 """
 
 from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -27,10 +30,7 @@ import emulated_providers as emulator  # noqa: E402
 from bailey import server  # noqa: E402
 
 #: Slower than the tests' stream, so a viewer sees the answer arrive.
-emulator.CHUNK_DELAY = 0.045
-
-REPLIES: list[dict[str, Any]] = []
-_emulators_turn = emulator.next_turn
+CHUNK_DELAY = 0.045
 
 
 def _passages(system: str) -> list[tuple[str, str, str]]:
@@ -41,14 +41,22 @@ def _passages(system: str) -> list[tuple[str, str, str]]:
     return emulator._sent_whole(system.split("## Your documents", 1)[1])
 
 
-def scripted_turn(conversation: emulator.Conversation) -> emulator.Turn:
+def answer(conversation: emulator.Conversation, replies: Sequence[Mapping[str, Any]]) -> emulator.Turn | None:
+    """The scripted model's next turn, or ``None`` when no reply is scripted for the latest message."""
+
     asked = conversation.user[-1] if conversation.user else ""
-    reply = next((reply for reply in REPLIES if reply["when"].lower() in asked.lower()), None)
+    reply = next((reply for reply in replies if reply["when"].lower() in asked.lower()), None)
     if reply is None:
-        return _emulators_turn(conversation)
+        return None
     done = dict(conversation.turn_results)
     if reply.get("skill") and "load_skill" in conversation.tools and "load_skill" not in done:
         return emulator.Turn("", [emulator.Call(emulator._new_id("call"), "load_skill", {"name": reply["skill"]})])
+    for call in reply.get("calls", ()):
+        if call["tool"] not in done:
+            if call["tool"] not in conversation.tools:
+                # As a provider refuses a call to a tool it was not offered: the lesson no longer fits the app.
+                raise emulator.Violation(f"the script calls {call['tool']!r}; offered: {conversation.tools}")
+            return emulator.Turn("", [emulator.Call(emulator._new_id("call"), call["tool"], dict(call["args"]))])
     passages = _passages(conversation.system)
     text = ""
     for part, phrase in reply["reply"]:
@@ -60,7 +68,13 @@ def scripted_turn(conversation: emulator.Conversation) -> emulator.Turn:
 
 
 def main() -> int:
-    REPLIES.extend(json.loads(Path(sys.argv[1]).read_text(encoding="utf-8")))
+    replies = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    emulators_turn = emulator.next_turn
+
+    def scripted_turn(conversation: emulator.Conversation) -> emulator.Turn:
+        return answer(conversation, replies) or emulators_turn(conversation)
+
+    emulator.CHUNK_DELAY = CHUNK_DELAY
     emulator.next_turn = scripted_turn
     base = emulator.serve_in_background()
     app_state = server.AppState

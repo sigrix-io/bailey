@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "harbour-mail-desk",
+  "description": "Works in a small bookshop's mailbox: finds a customer's email, and saves a draft reply to it once you allow it.",
+  "extensions": {
+    "org.sigrix": {
+      "assistant": "assistant.json"
+    }
+  }
+}

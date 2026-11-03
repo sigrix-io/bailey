@@ -3,7 +3,7 @@
 Each narration clip is levelled to the same loudness and starts where its caption appears;
 the music (``music.py``) ducks under the voice, about 10 dB under it in a pause and about
 15 dB under it while it speaks; the mix is normalised to -16 LUFS, the level web players
-expect, with its peaks about 2 dB under full scale, and muxed beside the untouched picture.
+expect, its peaks aimed 2 dB under full scale, and muxed beside the untouched picture.
 """
 
 from __future__ import annotations

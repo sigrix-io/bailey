@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "harbour-mail": {
+      "command": "harbour-mail",
+      "env": {
+        "HARBOUR_MAIL_KEY": ""
+      }
+    }
+  }
+}

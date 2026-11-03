@@ -15,6 +15,16 @@ click or a caption. Recording one starts Bailey, drives its page in Chromium, an
 Because a lesson is code, it is recorded again in a few minutes when the app changes, and a step
 the app no longer has stops the recording with an error rather than letting a stale video out.
 
+## The lessons
+
+| Lesson | What a person learns |
+| --- | --- |
+| `first_solution.py`, 1: your first solution | where things are; choosing an AI and saving its key; installing a solution from a file, and what the install screen says; giving it documents; a cited answer and what it cost |
+| `tools_that_ask.py`, 2: tools that ask before they act | a solution's tool server and the key it needs; a tool that reads and runs, and one that changes something and asks; allowing once and always; taking an "always" back in Settings |
+
+Each lesson picks up where the one before left off: lesson 2's `setup` chooses the provider
+before the recording starts, rather than showing it again.
+
 ## Recording one
 
 Beside Bailey's own development setup, a lesson needs Playwright's Chromium, the voice, and
@@ -26,7 +36,7 @@ playwright install chromium
 python lessons/first_solution.py
 ```
 
-It takes about four minutes, and writes into `lessons/out/`, which git ignores. `--out` names
+and the same for any other lesson's file. Each takes three or four minutes, and writes into `lessons/out/`, which git ignores. `--out` names
 another folder, `--chromium` (or `LESSONS_CHROMIUM`) a Chromium already installed, and
 `--keep-work` keeps the frames, the audio and Bailey's data folder for a look afterwards.
 
@@ -42,20 +52,27 @@ Bailey's own, running from this checkout. The model is not. `scripted_bailey.py`
 with its providers pointed at the emulator from its own tests (`tests/emulated_providers.py`),
 which speaks each provider's wire protocol, and gives it the answers the lesson scripts. So a
 recording needs no key and costs nothing, and comes out the same every time; and wherever a
-lesson is published, it says the answers are scripted. The key a lesson types is made up, and
+lesson is published, it says the answers are scripted. Lesson 2's tool server is a stand-in too
+(`harbour_mail.py`): the recording puts it on Bailey's `PATH` as `harbour-mail`, the command its
+solution's `mcp.json` names, and Bailey starts it as it starts any server, with the variables
+that file names and no others. Its drafts go nowhere. The keys a lesson types are made up, and
 Bailey keeps it in an encrypted file in a data folder of the recording's own (`BAILEY_KEYS=file`),
 so a recording never touches the keychain of the computer it runs on: that is why the page says
 "Saved in an encrypted file, Bailey/keys.enc."
 
 ## Writing a lesson
 
-Copy `first_solution.py`. Its parts:
+Copy the lesson nearest to the new one. Its parts:
 
 - `NARRATION`, everything it says. `text` is the caption; `spoken`, when given, is what the voice
   says instead, for a word it would misread (it spells out "ZIP", so the line says "zip"). To
   hear a line and see how it is read, `python lessons/narrate.py "the line"`.
-- `REPLIES`, the model's scripted answers, each for the message that contains its `when`
-  (`scripted_bailey.py` says how a reply cites a passage).
+- `REPLIES`, the model's scripted answers, each for the message that contains its `when`: the
+  skill it loads, the tool `calls` it makes, which the app runs or asks about, and the reply
+  (`scripted_bailey.py` says how a reply cites a passage). A call to a tool the app did not
+  offer fails the recording, as a provider refuses it.
+- `setup`, steps before the recording starts, on the page itself; and `commands`, stand-in
+  programs on Bailey's `PATH`, such as a solution's tool server.
 - `run`, the steps, through the `Studio` (`studio.py`): `say(key)` shows a caption and speaks
   it, holding until the voice ends; `voice(key)` speaks over a card; `spot(locator)` dims the
   page around one part of it; `click`, `type`, `chapter`, `card`, `quiet` and `sleep`.
@@ -73,7 +90,7 @@ into the one before it (`timeline.py`, held by `tests/test_lessons.py`).
   whose licence allows it could replace it.
 - **The mix** (`mixdown.py`) levels every line to the same loudness, starts it a quarter of a
   second after its caption appears, adds a soft click for each click, and ducks the music under
-  the voice. The whole is normalised to -16 LUFS, with its peaks about 2 dB under full scale.
+  the voice. The whole is normalised to -16 LUFS, its peaks aimed 2 dB under full scale.
 
 ## Publishing one
 
