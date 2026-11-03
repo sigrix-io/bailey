@@ -6,6 +6,14 @@ described in `VERSIONING.md`.
 
 ## [Unreleased]
 
+### Added
+
+- `lessons/` records video lessons from the app itself: Bailey on a scripted model, driven in
+  Chromium with a cursor, highlights and captions, narrated by a text-to-speech model that runs
+  on the recording machine over music generated there, and written out as a 1080p MP4 with its
+  poster, captions and chapters. The first is lesson 1, your first solution. It is a
+  maintainer's tool, in neither the wheel nor the sdist (`lessons/README.md`).
+
 ## [0.1.0] — 2026-11-02
 
 The app, without the store: a solution installed from a file does its job on this computer,
