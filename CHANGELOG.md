@@ -22,6 +22,16 @@ described in `VERSIONING.md`.
   `lessons/solutions/harbour-weekly-digest`; the recording makes the app's environment a
   stand-in, as the tests do, rather than downloading 250 MB.
 
+### Fixed
+
+- A retry is stored as a retry again. PydanticAI 2.63 split its retry part in two: a call the
+  model must make again comes back as that call's result, marked `retried`, which Bailey stored
+  as a successful result, and a retry that answers no call, as after a reply with nothing in it,
+  comes back as a part of its own, which Bailey dropped. Both are stored as `retry` parts, in the
+  shape they had before, and go back to the model as those two parts, never as the
+  `RetryPromptPart` that 2.63 deprecates and v3 removes. A conversation stored before the split
+  still loads.
+
 ## [0.1.0] — 2026-11-02
 
 The app, without the store: a solution installed from a file does its job on this computer,
