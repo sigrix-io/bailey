@@ -43,6 +43,20 @@ def test_a_blank_bailey_home_is_no_override() -> None:
     assert data_folder(environ={"BAILEY_HOME": "  "}, platform="linux", home=HOME) == HOME / ".local/share/bailey"
 
 
+@pytest.mark.parametrize("named", ["some-folder", "./some-folder"])
+def test_a_relative_bailey_home_is_named_in_full_from_the_folder_bailey_starts_in(
+    named: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # An app's runner starts in the app's own folder, where a relative path would lead nowhere.
+    monkeypatch.chdir(tmp_path)
+    assert data_folder(environ={"BAILEY_HOME": named}, platform="linux", home=HOME) == tmp_path / "some-folder"
+
+
+def test_a_bailey_home_in_the_users_home_is_expanded_before_it_is_named_in_full() -> None:
+    expanded = data_folder(environ={"BAILEY_HOME": "~/bailey-two"}, platform="linux", home=HOME)
+    assert expanded == Path.home() / "bailey-two"
+
+
 def test_the_folder_is_made_with_its_parents(tmp_path: Path) -> None:
     folder = tmp_path / "a" / "b" / "bailey"
     assert ensure_data_folder(folder) == folder

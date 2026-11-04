@@ -84,7 +84,8 @@ class Bailey:
         answers = work / "replies.json"
         answers.write_text(json.dumps(list(lesson.replies)), encoding="utf-8")
         # Nothing it reaches is past this computer, so no proxy applies. The data folder is named
-        # relative to the work folder, so the page names the key file as "Bailey/keys.enc".
+        # relative to the work folder, and scripted_bailey.py names the key file from there, so the
+        # page names it as "Bailey/keys.enc" rather than by the recorder's own folders.
         env = {key: value for key, value in os.environ.items() if not key.lower().endswith("_proxy")}
         env |= {"BAILEY_HOME": "Bailey", "BAILEY_KEYS": "file", "BAILEY_PASSPHRASE": PASSPHRASE}
         if lesson.app_task_seconds is not None:
