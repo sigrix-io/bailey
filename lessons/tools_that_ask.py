@@ -16,6 +16,7 @@ import sys
 import zipfile
 from pathlib import Path
 
+import pages
 from playwright.async_api import Locator
 from studio import Lesson, Studio, main, provider_chosen
 
@@ -218,7 +219,7 @@ async def run(s: Studio) -> None:
 
 
 LESSON = Lesson(
-    slug="bailey-lesson-02-tools-that-ask",
+    page=pages.TOOLS_THAT_ASK,
     title={
         "kicker": "Bailey · Lesson 2",
         "title": "Tools that ask before they act",

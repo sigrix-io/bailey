@@ -15,6 +15,7 @@ import sys
 import zipfile
 from pathlib import Path
 
+import pages
 from playwright.async_api import Locator
 from studio import Lesson, Studio, main
 
@@ -218,7 +219,7 @@ async def run(s: Studio) -> None:
 
 
 LESSON = Lesson(
-    slug="bailey-lesson-01-first-solution",
+    page=pages.FIRST_SOLUTION,
     title={
         "kicker": "Bailey · Lesson 1",
         "title": "Your first solution",

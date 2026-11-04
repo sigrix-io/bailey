@@ -24,6 +24,10 @@ described in `VERSIONING.md`.
 - Lesson 4, check a solution: `bailey doctor`, and `bailey check` on lesson 1's solution, whose
   seven cases pass, and on a draft that lost its quote-sources skill, whose examples fail with
   their reasons. The recorder films a terminal for it: each command typed, then really run.
+- A recorded lesson is a bundle Sigrix's Learn console imports in one step: each lesson records
+  into a folder of its own, its media under fixed names beside its page on sigrix.io
+  (`lesson.json`, from `lessons/pages.py`), and `python lessons/pack.py` zips the recorded lessons
+  with their learning path. Nothing of a lesson's page is typed by hand any more.
 
 ### Changed
 

@@ -18,6 +18,7 @@ import shutil
 import sys
 from pathlib import Path
 
+import pages
 from playwright.async_api import Locator
 from studio import Lesson, Studio, main, provider_chosen
 
@@ -140,7 +141,7 @@ async def run(s: Studio) -> None:
 
 
 LESSON = Lesson(
-    slug="bailey-lesson-04-check-a-solution",
+    page=pages.CHECK_A_SOLUTION,
     title={
         "kicker": "Bailey · Lesson 4",
         "title": "Check a solution",
