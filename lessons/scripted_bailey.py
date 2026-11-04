@@ -140,15 +140,31 @@ def use_stand_in_environments(task_seconds: float) -> None:
 
 
 def cli(arguments: list[str]) -> int:
-    """``bailey`` as a person runs it in a terminal, with each provider's address the scripted model's."""
+    """``bailey`` as a person runs it in a terminal, with each provider's address the scripted model's.
 
-    from bailey import settings
+    ``bailey doctor`` prints the data folder, which Bailey names in full: here it is named from the
+    folder the terminal runs in, so it reads "Bailey" in every recording, as the key file does.
+    """
+
+    from bailey import doctor, settings
     from bailey.cli import main as bailey
 
     base = os.environ["LESSON_MODEL_URL"]
     for name, address in (("anthropic", base + "/anthropic"), ("openai", base + "/openai/v1")):
         settings._BY_ID[name] = dataclasses.replace(settings._BY_ID[name], base_url=address)
+    here, folder_of = Path.cwd(), doctor.data_folder
+
+    def data_folder(*args: Any, **kwargs: Any) -> Path:
+        return named_from(here, folder_of(*args, **kwargs))
+
+    doctor.data_folder = data_folder
     return bailey(arguments)
+
+
+def named_from(here: Path, folder: Path) -> Path:
+    """``folder`` named from ``here`` when it is inside it, and in full otherwise."""
+
+    return folder.relative_to(here) if folder.is_relative_to(here) else folder
 
 
 def keys_named_from(here: Path, open_keys: Callable[..., Any]) -> Callable[..., Any]:
@@ -160,7 +176,7 @@ def keys_named_from(here: Path, open_keys: Callable[..., Any]) -> Callable[..., 
     """
 
     def opened(folder: Path, **kwargs: Any) -> Any:
-        return open_keys(folder.relative_to(here) if folder.is_relative_to(here) else folder, **kwargs)
+        return open_keys(named_from(here, folder), **kwargs)
 
     return opened
 

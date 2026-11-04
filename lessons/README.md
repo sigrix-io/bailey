@@ -66,9 +66,11 @@ is typed and then really run, in a shell of its own, with its output shown as it
 There `bailey` is Bailey's own command line with each provider's address the scripted model's
 (`scripted_bailey.py --cli`), so `bailey check`'s cases, verdicts and report are its own, and
 only the answers are scripted. The keys a lesson types are made up, and
-Bailey keeps it in an encrypted file in a data folder of the recording's own (`BAILEY_KEYS=file`),
+Bailey keeps them in an encrypted file in a data folder of the recording's own (`BAILEY_KEYS=file`),
 so a recording never touches the keychain of the computer it runs on: that is why the page says
-"Saved in an encrypted file, Bailey/keys.enc."
+"Saved in an encrypted file, Bailey/keys.enc." Bailey names its data folder in full, so the
+recording names the key file from the work folder, and lesson 4's `bailey doctor` the data folder
+too: the same in every recording, and never the recorder's own temporary folder.
 
 ## Writing a lesson
 

@@ -191,3 +191,23 @@ def test_a_recordings_key_file_is_named_from_its_work_folder(
     assert folder == tmp_path / "Bailey", "the canary: Bailey names the folder in full"
     keys = scripted.keys_named_from(tmp_path, open_keys)(folder, environ={"BAILEY_KEYS": "file"})
     assert keys.where == f"an encrypted file, {Path('Bailey', FILE_NAME)}"
+
+
+def test_the_terminals_bailey_doctor_names_the_data_folder_from_its_folder(
+    scripted: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Lesson 4's terminal runs ``bailey doctor``: its data folder reads "Bailey", as the key file does."""
+
+    from bailey import doctor, settings
+
+    # What cli() replaces, put back after the test.
+    monkeypatch.setattr(settings, "_BY_ID", dict(settings._BY_ID))
+    monkeypatch.setattr(doctor, "data_folder", doctor.data_folder)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BAILEY_HOME", "Bailey")
+    monkeypatch.setenv("LESSON_MODEL_URL", "http://127.0.0.1:9")
+    (tmp_path / "Bailey").mkdir()
+
+    scripted.cli(["doctor"])
+    folder_line = next(line for line in capsys.readouterr().out.splitlines() if "Data folder:" in line)
+    assert folder_line.split("Data folder: ", 1)[1].split(" ", 1)[0] == "Bailey"
