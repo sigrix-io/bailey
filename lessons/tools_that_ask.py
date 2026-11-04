@@ -228,7 +228,7 @@ LESSON = Lesson(
     replies=REPLIES,
     run=run,
     setup=provider_chosen,
-    commands={"harbour-mail": HERE / "harbour_mail.py"},
+    commands={"harbour-mail": (HERE / "harbour_mail.py",)},
 )
 
 if __name__ == "__main__":

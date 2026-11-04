@@ -90,6 +90,10 @@
       target = el; pad = padding == null ? 8 : padding;
       ui.spot.style.opacity = el ? "1" : "0";
     },
+    pointer(shown) {
+      ensure();
+      ui.cursor.style.display = shown ? "" : "none";
+    },
     card(spec) {
       ensure();
       if (!spec) { ui.card.style.opacity = "0"; ui.cursor.style.opacity = "1"; return; }

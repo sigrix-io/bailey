@@ -144,7 +144,8 @@ def test_a_message_the_lesson_scripts_no_reply_for_is_left_to_the_emulator(scrip
 
 def test_a_scripted_reply_loads_its_skill_then_cites_the_passage_holding_its_phrase(scripted: ModuleType) -> None:
     system = (
-        "Draft replies.\n\n## Your documents\n\nBelow are the person's documents, in numbered passages.\n\n"
+        "Draft replies.\n\n## Skills\n\n- `quote-sources`: Quotes the documents.\n\n"
+        "## Your documents\n\nBelow are the person's documents, in numbered passages.\n\n"
         "### Document: policies.md (Shop policies)\n\n#### Returns\n"
         "[P3] - You can return a book within 30 days of delivery, for any reason.\n"
     )
@@ -162,6 +163,23 @@ def test_a_scripted_reply_loads_its_skill_then_cites_the_passage_holding_its_phr
     assert scripted.answer(conversation, [reply]).text == "Yes, within 30 days [P3], for any reason."
 
 
+def test_a_reply_whose_skill_the_solution_lost_comes_without_what_the_skill_grounds(scripted: ModuleType) -> None:
+    reply = {
+        "when": "gift wrap",
+        "skill": "quote-sources",
+        "reply": [["NOT COVERED: The documents do not mention gift wrapping.\n\nHi Keiko, the team will reply.", None]],
+    }
+    lost = scripted.emulator.Conversation(
+        system="Draft replies.\n\n## Skills\n\n- `reply-style`: Keeps it short.\n",
+        user=["Do you gift wrap?"],
+        tools=["load_skill"],
+    )
+
+    turn = scripted.answer(lost, [reply])
+    # No load of a skill it does not have, and no note of what the documents leave out.
+    assert (turn.calls, turn.text) == ([], "Hi Keiko, the team will reply.")
+
+
 def test_a_recordings_key_file_is_named_from_its_work_folder(
     scripted: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -173,3 +191,23 @@ def test_a_recordings_key_file_is_named_from_its_work_folder(
     assert folder == tmp_path / "Bailey", "the canary: Bailey names the folder in full"
     keys = scripted.keys_named_from(tmp_path, open_keys)(folder, environ={"BAILEY_KEYS": "file"})
     assert keys.where == f"an encrypted file, {Path('Bailey', FILE_NAME)}"
+
+
+def test_the_terminals_bailey_doctor_names_the_data_folder_from_its_folder(
+    scripted: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Lesson 4's terminal runs ``bailey doctor``: its data folder reads "Bailey", as the key file does."""
+
+    from bailey import doctor, settings
+
+    # What cli() replaces, put back after the test.
+    monkeypatch.setattr(settings, "_BY_ID", dict(settings._BY_ID))
+    monkeypatch.setattr(doctor, "data_folder", doctor.data_folder)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BAILEY_HOME", "Bailey")
+    monkeypatch.setenv("LESSON_MODEL_URL", "http://127.0.0.1:9")
+    (tmp_path / "Bailey").mkdir()
+
+    scripted.cli(["doctor"])
+    folder_line = next(line for line in capsys.readouterr().out.splitlines() if "Data folder:" in line)
+    assert folder_line.split("Data folder: ", 1)[1].split(" ", 1)[0] == "Bailey"

@@ -14,15 +14,27 @@ citing after a text the passage that holds its phrase, as Bailey asks a model to
 once per passage. Any other message gets the emulator's own answer, and so does a crew's
 task, unless a reply is scripted for it too: each task reaches the model as a message.
 
+A reply whose skill the solution no longer lists is given without what that skill grounds
+(its sources and its not-covered notes), as the emulator's own replays are: so a lesson can
+show what ``bailey check`` says of a solution that lost one.
+
 With ``LESSON_APP_TASK_SECONDS`` set, an app's environment is a stand-in, made in seconds as
 ``tests/app_environments.py`` makes one, with the tests' CrewAI and the pinned runner rather
 than 250 MB from PyPI, and each of its crew's tasks takes that many seconds.
+
+    python lessons/scripted_bailey.py --cli <arguments>
+
+is the ``bailey`` command itself, ``bailey check`` included, on the scripted model the
+recording started (``LESSON_MODEL_URL``): a lesson that films a terminal puts it on the
+terminal's PATH as ``bailey``.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -61,22 +73,32 @@ def answer(conversation: emulator.Conversation, replies: Sequence[Mapping[str, A
     if reply is None:
         return None
     done = dict(conversation.turn_results)
-    if reply.get("skill") and "load_skill" in conversation.tools and "load_skill" not in done:
-        return emulator.Turn("", [emulator.Call(emulator._new_id("call"), "load_skill", {"name": reply["skill"]})])
+    skill = reply.get("skill")
+    if skill and not re.search(rf"^- `{re.escape(skill)}`:", conversation.system, re.M):
+        # The solution no longer has the skill: the reply comes without what the skill grounds.
+        return emulator.Turn(emulator.ungrounded(_written(reply, conversation.system)))
+    if skill and "load_skill" in conversation.tools and "load_skill" not in done:
+        return emulator.Turn("", [emulator.Call(emulator._new_id("call"), "load_skill", {"name": skill})])
     for call in reply.get("calls", ()):
         if call["tool"] not in done:
             if call["tool"] not in conversation.tools:
                 # As a provider refuses a call to a tool it was not offered: the lesson no longer fits the app.
                 raise emulator.Violation(f"the script calls {call['tool']!r}; offered: {conversation.tools}")
             return emulator.Turn("", [emulator.Call(emulator._new_id("call"), call["tool"], dict(call["args"]))])
-    passages = _passages(conversation.system)
+    return emulator.Turn(_written(reply, conversation.system))
+
+
+def _written(reply: Mapping[str, Any], system: str) -> str:
+    """A reply's text, citing after each part the passage that holds its phrase, once per passage."""
+
+    passages = _passages(system)
     text = ""
     for part, phrase in reply["reply"]:
         text += part
         number = next((number for number, _, body in passages if phrase and phrase in body), None)
         if number is not None and f"[P{number}]" not in text:
             text += f" [P{number}]"
-    return emulator.Turn(text)
+    return text
 
 
 def use_stand_in_environments(task_seconds: float) -> None:
@@ -117,6 +139,34 @@ def use_stand_in_environments(task_seconds: float) -> None:
     apps.VirtualEnvironments.variables = variables
 
 
+def cli(arguments: list[str]) -> int:
+    """``bailey`` as a person runs it in a terminal, with each provider's address the scripted model's.
+
+    ``bailey doctor`` prints the data folder, which Bailey names in full: here it is named from the
+    folder the terminal runs in, so it reads "Bailey" in every recording, as the key file does.
+    """
+
+    from bailey import doctor, settings
+    from bailey.cli import main as bailey
+
+    base = os.environ["LESSON_MODEL_URL"]
+    for name, address in (("anthropic", base + "/anthropic"), ("openai", base + "/openai/v1")):
+        settings._BY_ID[name] = dataclasses.replace(settings._BY_ID[name], base_url=address)
+    here, folder_of = Path.cwd(), doctor.data_folder
+
+    def data_folder(*args: Any, **kwargs: Any) -> Path:
+        return named_from(here, folder_of(*args, **kwargs))
+
+    doctor.data_folder = data_folder
+    return bailey(arguments)
+
+
+def named_from(here: Path, folder: Path) -> Path:
+    """``folder`` named from ``here`` when it is inside it, and in full otherwise."""
+
+    return folder.relative_to(here) if folder.is_relative_to(here) else folder
+
+
 def keys_named_from(here: Path, open_keys: Callable[..., Any]) -> Callable[..., Any]:
     """``bailey.keys.open_keys``, naming the key file from ``here``, the folder a recording starts Bailey in.
 
@@ -126,12 +176,14 @@ def keys_named_from(here: Path, open_keys: Callable[..., Any]) -> Callable[..., 
     """
 
     def opened(folder: Path, **kwargs: Any) -> Any:
-        return open_keys(folder.relative_to(here) if folder.is_relative_to(here) else folder, **kwargs)
+        return open_keys(named_from(here, folder), **kwargs)
 
     return opened
 
 
 def main() -> int:
+    if sys.argv[1:2] == ["--cli"]:
+        return cli(sys.argv[2:])
     replies = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     emulators_turn = emulator.next_turn
 
@@ -143,6 +195,9 @@ def main() -> int:
     if os.environ.get("LESSON_APP_TASK_SECONDS"):
         use_stand_in_environments(float(os.environ["LESSON_APP_TASK_SECONDS"]))
     base = emulator.serve_in_background()
+    # For a terminal the lesson films: its `bailey` reaches the same scripted model (cli, above).
+    sys.stdout.write(f"Scripted model at {base}\n")
+    sys.stdout.flush()
     app_state = server.AppState
 
     def scripted_state(*args: Any, **kwargs: Any) -> server.AppState:
