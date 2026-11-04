@@ -5,8 +5,11 @@
 - **Linux and the rest:** ``$XDG_DATA_HOME/bailey``, or ``~/.local/share/bailey``.
 
 ``BAILEY_HOME`` overrides all three, for a container's volume or a second, separate
-setup. The folder holds the local store (``bailey.db``) and, on a machine with no
-keychain, the encrypted key file (``keys.enc``); keys never go anywhere else.
+setup. A relative one is read from the folder Bailey starts in and named in full from
+then on, since a program Bailey starts in another folder, as it starts an app's runner in
+the app's own, would read it from there. The folder holds the local store (``bailey.db``)
+and, on a machine with no keychain, the encrypted key file (``keys.enc``); keys never go
+anywhere else.
 
 Every function takes what it reads as an argument, so a test can describe any machine.
 """
@@ -32,7 +35,9 @@ def data_folder(
 
     override = environ.get(HOME_VARIABLE, "").strip()
     if override:
-        return Path(override).expanduser()
+        # In full, once, here: every path made from it then holds in a program started in another
+        # folder, as an app's runner is (bailey.apps).
+        return Path(override).expanduser().absolute()
     user_home = home if home is not None else Path.home()
     if platform.startswith("win"):
         local = environ.get("LOCALAPPDATA", "").strip()
