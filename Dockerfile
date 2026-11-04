@@ -9,6 +9,7 @@
 #   uvx and a person's computer may have neither (the design's risk 2).
 # - The search model, which the app otherwise downloads the first time a collection is too
 #   large to send whole (risk 7). It sits outside the data volume, so a new volume has it too.
+# - libatomic1, which the node binary links against (Node 26 on, the Python base has none).
 # - tini as PID 1: it hands a stop to Bailey, and reaps the processes a tool server leaves.
 #
 # Built from the one wheel in dist/: the release's own in release.yml, and one built from the
@@ -25,7 +26,7 @@ LABEL org.opencontainers.image.title="Bailey" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 RUN apt-get update \
- && apt-get install --yes --no-install-recommends tini \
+ && apt-get install --yes --no-install-recommends tini libatomic1 \
  && rm -rf /var/lib/apt/lists/*
 
 # Node.js from the official image, built for the same Debian release.
