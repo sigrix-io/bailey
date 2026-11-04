@@ -54,6 +54,11 @@ described in `VERSIONING.md`.
   "Unlock your keys with their passphrase first.", as chat does. The route that forwards an app's
   requests to its runner let the error through as a bare 500, which the page could only call "not
   JSON", whatever the provider; a keychain that refuses is said so there too.
+- A conversation in which the model once replied with only its thinking stops telling it, on every
+  later message, that its previous response failed. Bailey does not store such a reply, but it kept
+  PydanticAI's request for another try and sent that on beside the person's message, before the
+  model had said anything. The request is now left out of what the model is sent, in conversations
+  stored before this too.
 
 ## [0.1.0] — 2026-11-02
 

@@ -150,8 +150,6 @@ def test_a_retry_of_either_kind_is_stored_as_a_retry_and_nothing_of_the_librarys
 
 def test_a_retry_of_either_kind_becomes_the_part_it_was_again() -> None:
     history = to_history(to_records(_a_run_with_retries(), provider="openai", model="gpt-5-mini"))
-    # The reply with only thinking in it is not stored, so the feedback on it joins the request before.
-    assert [type(message) for message in history] == [ModelRequest, ModelResponse] * 3
     retried = history[2].parts[0]
     assert isinstance(retried, ToolReturnPart) and retried.outcome == "retried"
     assert (retried.tool_name, retried.tool_call_id, retried.content) == (
@@ -159,9 +157,54 @@ def test_a_retry_of_either_kind_becomes_the_part_it_was_again() -> None:
         "call_1",
         "`to` takes an address, not a name.",
     )
-    result, feedback = history[4].parts
-    assert isinstance(result, ToolReturnPart) and result.outcome == "success"
-    assert isinstance(feedback, RetryFeedbackPart) and feedback.content == "Please return text."
+    # Feedback on a reply that is stored, as an output validator's would be, comes back after it.
+    turned_down = [
+        ModelRequest(parts=[UserPromptPart(content="Draft a reply to Ana.")]),
+        ModelResponse(parts=[TextPart(content="Here is a draft.")], model_name="gpt-5-mini"),
+        ModelRequest(
+            parts=[RetryFeedbackPart(content="Say which thread it is in.", retry=RetryInfo(cause="model_retry"))]
+        ),
+        ModelResponse(parts=[TextPart(content="Here is a draft, in Ana's thread.")], model_name="gpt-5-mini"),
+    ]
+    history = to_history(to_records(turned_down, provider="openai", model="gpt-5-mini"))
+    assert [type(message) for message in history] == [ModelRequest, ModelResponse] * 2
+    (feedback,) = history[2].parts
+    assert isinstance(feedback, RetryFeedbackPart) and feedback.content == "Say which thread it is in."
+
+
+def test_feedback_on_a_reply_that_is_not_stored_is_left_out() -> None:
+    # A reply with nothing in it but thinking is not stored. Its feedback is, as what went to the
+    # model, but sent on later it would tell the model that a response it was never shown had
+    # failed (sigrix-io/bailey#31).
+    history = to_history(to_records(_a_run_with_retries(), provider="openai", model="gpt-5-mini"))
+    assert [type(message) for message in history] == [ModelRequest, ModelResponse] * 3
+    assert [type(part) for part in history[4].parts] == [ToolReturnPart], "the draft's result, and no feedback"
+    # A conversation 0.1.0 stored is read the same way, its feedback in PydanticAI 2.56's words.
+    stored = [
+        user_record("Hello"),
+        {
+            "format": FORMAT,
+            "role": "user",
+            "at": "2026-11-02T09:00:01+00:00",
+            "parts": [
+                {
+                    "kind": "retry",
+                    "id": "pyd_ai_0f3c9a1e6b2d4c8e9a7b5d3f1e2c4a6b",
+                    "tool": "",
+                    "content": "Validation feedback:\nPlease return text.\n\nFix the errors and try again.",
+                }
+            ],
+        },
+        {
+            "format": FORMAT,
+            "role": "assistant",
+            "at": "2026-11-02T09:00:02+00:00",
+            "parts": [{"kind": "text", "text": "Hello! How can I help?"}],
+            "provider": "anthropic",
+            "model": "claude-sonnet-5-5",
+        },
+    ]
+    assert [[type(part) for part in message.parts] for message in to_history(stored)] == [[UserPromptPart], [TextPart]]
 
 
 def test_a_retry_stored_before_pydantic_ai_split_it_in_two_still_converts() -> None:
