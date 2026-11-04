@@ -1,0 +1,8 @@
+{
+  "format_version": "0.1",
+  "name": "weekly-digest",
+  "title": "Weekly digest",
+  "description": "Writes a small bookshop's weekly newsletter from the week's notes, with a crew app.",
+  "instructions": "skills/weekly-digest/SKILL.md",
+  "starters": ["What goes into this week's digest?"]
+}

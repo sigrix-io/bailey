@@ -11,13 +11,23 @@ are scripted, so every recording of a lesson comes out the same, with no key and
 order, each a ``{"tool": ..., "args": {...}}`` the app runs or asks the person about, one per
 turn as a model makes them; then answers with ``reply``, a list of ``[text, phrase]`` pairs,
 citing after a text the passage that holds its phrase, as Bailey asks a model to (``[P3]``),
-once per passage. Any other message gets the emulator's own answer.
+once per passage. Any other message gets the emulator's own answer, and so does a crew's
+task, unless a reply is scripted for it too: each task reaches the model as a message.
+
+With ``LESSON_APP_TASK_SECONDS`` set, an app's environment is a stand-in, made in seconds as
+``tests/app_environments.py`` makes one, with the tests' CrewAI and the pinned runner rather
+than 250 MB from PyPI, and each of its crew's tasks takes that many seconds.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 import sys
+import sysconfig
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -31,6 +41,8 @@ from bailey import server  # noqa: E402
 
 #: Slower than the tests' stream, so a viewer sees the answer arrive.
 CHUNK_DELAY = 0.045
+#: How long the stand-in takes to install an app's libraries, so the page shows it doing so.
+STAND_IN_INSTALL_SECONDS = 5.0
 
 
 def _passages(system: str) -> list[tuple[str, str, str]]:
@@ -67,6 +79,44 @@ def answer(conversation: emulator.Conversation, replies: Sequence[Mapping[str, A
     return emulator.Turn(text)
 
 
+def use_stand_in_environments(task_seconds: float) -> None:
+    """Every app runs in a stand-in environment, made as ``tests/app_environments.py`` makes one."""
+
+    from app_environments import STAND_INS
+
+    from bailey import apps
+
+    def build(self: apps.VirtualEnvironments, requirements: bytes) -> None:
+        folder = self._folder(requirements)
+        try:
+            shutil.rmtree(folder, ignore_errors=True)
+            self.root.mkdir(parents=True, exist_ok=True)
+            # This Python's own venv module, with nothing downloaded.
+            subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(folder)], check=True)  # noqa: S603
+            purelib = subprocess.run(  # noqa: S603 -- the environment's own Python, a fixed argv
+                [str(self.python(requirements)), "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            # The stand-in CrewAI first, then this Python's packages: the pinned runner and its libraries.
+            reached = [STAND_INS, Path(sysconfig.get_paths()["purelib"])]
+            (Path(purelib) / "bailey_lesson_paths.pth").write_text("".join(f"{path}\n" for path in reached), "utf-8")
+            (folder / "requirements.txt").write_bytes(requirements)
+            time.sleep(STAND_IN_INSTALL_SECONDS)
+            (folder / ".ready").write_text("a stand-in, made by lessons/scripted_bailey.py\n", encoding="utf-8")
+        except (OSError, subprocess.SubprocessError) as error:
+            with self._lock:
+                self._failed[folder.name] = f"The stand-in environment failed: {error}"
+
+    def variables(self: apps.VirtualEnvironments) -> dict[str, str]:
+        # Read by the stand-in CrewAI, which waits this long on each task.
+        return {"STAND_IN_TASK_SECONDS": str(task_seconds)}
+
+    apps.VirtualEnvironments._build = build
+    apps.VirtualEnvironments.variables = variables
+
+
 def main() -> int:
     replies = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     emulators_turn = emulator.next_turn
@@ -76,12 +126,19 @@ def main() -> int:
 
     emulator.CHUNK_DELAY = CHUNK_DELAY
     emulator.next_turn = scripted_turn
+    if os.environ.get("LESSON_APP_TASK_SECONDS"):
+        use_stand_in_environments(float(os.environ["LESSON_APP_TASK_SECONDS"]))
     base = emulator.serve_in_background()
     app_state = server.AppState
 
     def scripted_state(*args: Any, **kwargs: Any) -> server.AppState:
         # Each provider's address is the emulator's, as the tests point them (AppState.base_urls).
         kwargs.setdefault("base_urls", {"anthropic": base + "/anthropic", "openai": base + "/openai/v1"})
+        # The recording names its data folder relatively (studio.py), so the page names the key file
+        # short. Bailey starts an app's runner from inside the app's folder, where a relative path to
+        # the runner's Python leads nowhere, so everything after the keys gets the folder's full path.
+        if "data_folder" in kwargs:
+            kwargs["data_folder"] = Path(kwargs["data_folder"]).absolute()
         return app_state(*args, **kwargs)
 
     server.AppState = scripted_state

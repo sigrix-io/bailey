@@ -1,0 +1,14 @@
+{
+  "version": "sigrix_ui/0.1",
+  "template": "form-to-result",
+  "run_label": "Write the digest",
+  "output": {"mode": "markdown"},
+  "inputs": [
+    {
+      "key": "prompt",
+      "widget": "box",
+      "help": "Paste the week's notes: new arrivals, events and staff picks.",
+      "placeholder": "New this week: The Lighthouse Keeper by Mara Quinn"
+    }
+  ]
+}

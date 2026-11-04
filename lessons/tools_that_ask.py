@@ -17,7 +17,7 @@ import zipfile
 from pathlib import Path
 
 from playwright.async_api import Locator
-from studio import Lesson, Studio, main
+from studio import Lesson, Studio, main, provider_chosen
 
 HERE = Path(__file__).resolve().parent
 SOLUTION = HERE / "solutions" / "harbour-mail-desk"
@@ -103,20 +103,6 @@ def zipped(folder: Path, into: Path) -> Path:
 
 def view(name: str) -> str:
     return f'.nav-item[data-view="{name}"]'
-
-
-async def setup(s: Studio) -> None:
-    """Where lesson 1 left off: a provider chosen and its key saved, on the Assistants page."""
-
-    page = s.page
-    await page.locator(view("settings")).click()
-    await page.locator("#provider-choices label", has_text="Anthropic").click()
-    await page.locator("#provider-form button[type=submit]").click()
-    await page.locator("#key-card").wait_for(state="visible")
-    await page.locator("#key").fill("a-made-up-key-for-the-recording")
-    await page.locator("#key-form button[type=submit]").click()
-    await page.wait_for_function("() => document.querySelector('#key-status').textContent.trim().length > 0")
-    await page.locator(view("assistants")).click()
 
 
 async def ask_and_wait(s: Studio, message: str) -> Locator:
@@ -241,7 +227,7 @@ LESSON = Lesson(
     narration=NARRATION,
     replies=REPLIES,
     run=run,
-    setup=setup,
+    setup=provider_chosen,
     commands={"harbour-mail": HERE / "harbour_mail.py"},
 )
 
