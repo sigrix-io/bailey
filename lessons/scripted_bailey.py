@@ -28,7 +28,7 @@ import subprocess
 import sys
 import sysconfig
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -117,6 +117,20 @@ def use_stand_in_environments(task_seconds: float) -> None:
     apps.VirtualEnvironments.variables = variables
 
 
+def keys_named_from(here: Path, open_keys: Callable[..., Any]) -> Callable[..., Any]:
+    """``bailey.keys.open_keys``, naming the key file from ``here``, the folder a recording starts Bailey in.
+
+    Bailey names its data folder in full (``bailey.paths``), and a recording's is in a temporary
+    folder of the recorder's own. Named from the work folder, the page calls the key file
+    "Bailey/keys.enc" in every recording (``lessons/README.md``).
+    """
+
+    def opened(folder: Path, **kwargs: Any) -> Any:
+        return open_keys(folder.relative_to(here) if folder.is_relative_to(here) else folder, **kwargs)
+
+    return opened
+
+
 def main() -> int:
     replies = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     emulators_turn = emulator.next_turn
@@ -134,14 +148,10 @@ def main() -> int:
     def scripted_state(*args: Any, **kwargs: Any) -> server.AppState:
         # Each provider's address is the emulator's, as the tests point them (AppState.base_urls).
         kwargs.setdefault("base_urls", {"anthropic": base + "/anthropic", "openai": base + "/openai/v1"})
-        # The recording names its data folder relatively (studio.py), so the page names the key file
-        # short. Bailey starts an app's runner from inside the app's folder, where a relative path to
-        # the runner's Python leads nowhere, so everything after the keys gets the folder's full path.
-        if "data_folder" in kwargs:
-            kwargs["data_folder"] = Path(kwargs["data_folder"]).absolute()
         return app_state(*args, **kwargs)
 
     server.AppState = scripted_state
+    server.open_keys = keys_named_from(Path.cwd(), server.open_keys)
     return server.serve(port=int(sys.argv[2]) if len(sys.argv) > 2 else 0, open_browser=False)
 
 

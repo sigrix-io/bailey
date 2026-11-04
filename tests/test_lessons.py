@@ -4,7 +4,8 @@ The recorder drives a browser and is run by hand (``lessons/README.md``); what i
 is pure, and held here. Chapters follow YouTube's rules, since a video that breaks them shows
 none: the first starts at 0:00, and none is shorter than ten seconds. The scripted model
 (``lessons/scripted_bailey.py``) answers as a lesson says, and a script that no longer fits
-the app fails the recording rather than filming something the app would not do.
+the app fails the recording rather than filming something the app would not do. The key file
+it names is the same in every recording, whoever records it.
 """
 
 from __future__ import annotations
@@ -15,6 +16,9 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+
+from bailey.keys import FILE_NAME, open_keys
+from bailey.paths import data_folder
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -156,3 +160,16 @@ def test_a_scripted_reply_loads_its_skill_then_cites_the_passage_holding_its_phr
     conversation.got("load_skill", "# Quote sources")
     # Once per passage: the second phrase is in the same passage, so it is not cited again.
     assert scripted.answer(conversation, [reply]).text == "Yes, within 30 days [P3], for any reason."
+
+
+def test_a_recordings_key_file_is_named_from_its_work_folder(
+    scripted: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bailey names its data folder in full, and a recording's is in the recorder's own temporary
+    folder: the page names the key file "Bailey/keys.enc" instead (``lessons/README.md``)."""
+
+    monkeypatch.chdir(tmp_path)
+    folder = data_folder(environ={"BAILEY_HOME": "Bailey"})
+    assert folder == tmp_path / "Bailey", "the canary: Bailey names the folder in full"
+    keys = scripted.keys_named_from(tmp_path, open_keys)(folder, environ={"BAILEY_KEYS": "file"})
+    assert keys.where == f"an encrypted file, {Path('Bailey', FILE_NAME)}"

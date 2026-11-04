@@ -26,7 +26,7 @@ SESSION = object()
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
-def environment(home: Path, extra: Mapping[str, str] | None = None) -> dict[str, str]:
+def environment(home: Path | str, extra: Mapping[str, str] | None = None) -> dict[str, str]:
     env = {
         key: value
         for key, value in os.environ.items()
@@ -67,17 +67,23 @@ def call(base: str, method: str, path: str, body: Any = None, token: str | None 
 
 
 class Running:
-    """One Bailey process, started with ``--no-browser`` and stopped by :meth:`stop`."""
+    """One Bailey process, started with ``--no-browser`` and stopped by :meth:`stop`.
+
+    ``home`` is its ``BAILEY_HOME`` as a person writes it, and ``cwd`` the folder it starts
+    in, which a relative one is read from.
+    """
 
     def __init__(
         self,
-        home: Path,
+        home: Path | str,
         *,
         extra_env: Mapping[str, str] | None = None,
         command: Sequence[str] | None = None,
+        cwd: Path | None = None,
     ) -> None:
         self.process = subprocess.Popen(
             list(command or [sys.executable, "-m", "bailey", "--no-browser"]),
+            cwd=cwd,
             env=environment(home, extra_env),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
