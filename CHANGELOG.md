@@ -40,6 +40,9 @@ described in `VERSIONING.md`.
   from there: "The app's runner could not start: No such file or directory." The folder is now
   named in full where `BAILEY_HOME` is read, so every path made from it is too. Settings names
   the key file in full, and `bailey doctor` the data folder.
+- While an answer streams, a tool call the model is to make again, as after an error from its
+  tool server, says it was given another try. PydanticAI 2.63 reports such a call with a word of
+  its own, `retried`, which the page did not know, so the call read as still running.
 
 ## [0.1.0] — 2026-11-02
 
