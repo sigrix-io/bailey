@@ -9,13 +9,14 @@
 #   uvx and a person's computer may have neither (the design's risk 2).
 # - The search model, which the app otherwise downloads the first time a collection is too
 #   large to send whole (risk 7). It sits outside the data volume, so a new volume has it too.
+# - libatomic1, which the node binary links against (Node 26 on, the Python base has none).
 # - tini as PID 1: it hands a stop to Bailey, and reaps the processes a tool server leaves.
 #
 # Built from the one wheel in dist/: the release's own in release.yml, and one built from the
 # checkout in ci.yml, where scripts/check_launch.py opens the app in it before anything ships.
 # Each base is pinned by digest, and Dependabot moves the pins.
 
-FROM node:24-trixie-slim@sha256:54f84b4cf8432b21aaffd5d3ce8d41e12cea0d10d33c09d2f3c9879d49d6b446 AS node
+FROM node:26-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39 AS node
 
 FROM python:3.13-slim-trixie@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1
 
@@ -25,7 +26,7 @@ LABEL org.opencontainers.image.title="Bailey" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 RUN apt-get update \
- && apt-get install --yes --no-install-recommends tini \
+ && apt-get install --yes --no-install-recommends tini libatomic1 \
  && rm -rf /var/lib/apt/lists/*
 
 # Node.js from the official image, built for the same Debian release.
