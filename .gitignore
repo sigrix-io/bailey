@@ -6,3 +6,6 @@ build/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+
+# Recordings made by lessons/ (lessons/README.md).
+lessons/out/

@@ -89,9 +89,10 @@ packages = ["src/bailey"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/bailey", "schemas", "tests", "scripts", "README.md", "LICENSE", "NOTICE", "CHANGELOG.md"]
-# The pin guard reads .github/workflows, which the sdist does not carry: it
-# checks the repository, not the package.
-exclude = ["tests/test_workflow_pins.py"]
+# The pin guard reads .github/workflows, and the lessons' test reads lessons/; the
+# sdist carries neither, since both check the repository, not the package. lessons/
+# is a maintainer's tool, left out by name because "README.md" matches at any depth.
+exclude = ["tests/test_workflow_pins.py", "tests/test_lessons.py", "lessons"]
 
 [tool.ruff]
 line-length = 120

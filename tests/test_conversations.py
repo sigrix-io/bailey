@@ -13,7 +13,8 @@ import pytest
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
-    RetryPromptPart,
+    RetryFeedbackPart,
+    RetryInfo,
     TextPart,
     ThinkingPart,
     ToolCallPart,
@@ -22,6 +23,9 @@ from pydantic_ai.messages import (
 )
 
 from bailey.conversations import FORMAT, notice_record, shown, to_history, to_records, user_record
+
+# The conversion builds no part PydanticAI has deprecated: its next major version removes them.
+pytestmark = pytest.mark.filterwarnings("error::pydantic_ai.PydanticAIDeprecationWarning")
 
 RECORD_KEYS = {"format", "role", "at", "parts", "provider", "model", "usage", "estimate"}
 PART_KEYS = {
@@ -88,13 +92,119 @@ def test_a_notice_is_shown_and_never_sent_and_two_user_turns_become_one_request(
     ]
 
 
-def test_a_retry_survives_the_round_trip() -> None:
-    run = [
-        ModelRequest(parts=[RetryPromptPart(content="bad arguments", tool_name="load_skill", tool_call_id="c2")]),
+def _a_run_with_retries() -> list[Any]:
+    """A run as the agent core returns it with a retry of each kind: one that answers a call the model
+    must make again, and one that answers a reply with nothing in it but thinking."""
+
+    return [
+        ModelRequest(parts=[UserPromptPart(content="Draft a reply to Ana.")]),
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="create_draft", args={"to": "Ana"}, tool_call_id="call_1")],
+            model_name="gpt-5-mini",
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    tool_name="create_draft",
+                    content="`to` takes an address, not a name.",
+                    tool_call_id="call_1",
+                    outcome="retried",
+                    retry=RetryInfo(cause="model_retry", attempt=1, max_retries=1),
+                )
+            ]
+        ),
+        ModelResponse(
+            parts=[ToolCallPart(tool_name="create_draft", args={"to": "ana@example.com"}, tool_call_id="call_2")],
+            model_name="gpt-5-mini",
+        ),
+        ModelRequest(parts=[ToolReturnPart(tool_name="create_draft", content="Draft saved.", tool_call_id="call_2")]),
+        ModelResponse(parts=[ThinkingPart(content="Saved. Now say so.")], model_name="gpt-5-mini"),
+        ModelRequest(
+            parts=[
+                RetryFeedbackPart(
+                    content="Please return text.", retry=RetryInfo(cause="no_output", attempt=1, max_retries=1)
+                )
+            ]
+        ),
+        ModelResponse(parts=[TextPart(content="Your draft to Ana is saved.")], model_name="gpt-5-mini"),
     ]
-    history = to_history(to_records(run, provider="openai", model="gpt-5-mini"))
-    part = history[0].parts[0]
-    assert isinstance(part, RetryPromptPart) and part.tool_call_id == "c2" and part.tool_name == "load_skill"
+
+
+def test_a_retry_of_either_kind_is_stored_as_a_retry_and_nothing_of_the_librarys() -> None:
+    records = to_records(_a_run_with_retries(), provider="openai", model="gpt-5-mini")
+    for record in records:
+        for part in record["parts"]:
+            assert set(part) == PART_KEYS[part["kind"]], part
+    assert [part for record in records for part in record["parts"] if part["kind"] == "retry"] == [
+        {"kind": "retry", "id": "call_1", "tool": "create_draft", "content": "`to` takes an address, not a name."},
+        {"kind": "retry", "id": "", "tool": "", "content": "Please return text."},
+    ]
+    stored = repr(records)
+    for library_word in ("retried", "RetryInfo", "no_output", '{"error"', "retry_feedback"):
+        assert library_word not in stored, f"{library_word!r} is the library's"
+    assert [(tool["id"], tool["outcome"]) for tool in shown(records)[-1]["tools"]] == [
+        ("call_1", "retry"),
+        ("call_2", "success"),
+    ]
+
+
+def test_a_retry_of_either_kind_becomes_the_part_it_was_again() -> None:
+    history = to_history(to_records(_a_run_with_retries(), provider="openai", model="gpt-5-mini"))
+    # The reply with only thinking in it is not stored, so the feedback on it joins the request before.
+    assert [type(message) for message in history] == [ModelRequest, ModelResponse] * 3
+    retried = history[2].parts[0]
+    assert isinstance(retried, ToolReturnPart) and retried.outcome == "retried"
+    assert (retried.tool_name, retried.tool_call_id, retried.content) == (
+        "create_draft",
+        "call_1",
+        "`to` takes an address, not a name.",
+    )
+    result, feedback = history[4].parts
+    assert isinstance(result, ToolReturnPart) and result.outcome == "success"
+    assert isinstance(feedback, RetryFeedbackPart) and feedback.content == "Please return text."
+
+
+def test_a_retry_stored_before_pydantic_ai_split_it_in_two_still_converts() -> None:
+    # As Bailey 0.1.0 stored both kinds from PydanticAI 2.56's one retry part: in the words that
+    # version showed the model, and with a made-up id on the one that answers no call.
+    stored = [
+        {
+            "format": FORMAT,
+            "role": "assistant",
+            "at": "2026-11-02T09:00:00+00:00",
+            "parts": [{"kind": "tool_call", "id": "call_1", "tool": "create_draft", "args": {"to": "Ana"}}],
+            "provider": "openai",
+            "model": "gpt-5-mini",
+        },
+        {
+            "format": FORMAT,
+            "role": "user",
+            "at": "2026-11-02T09:00:01+00:00",
+            "parts": [
+                {
+                    "kind": "retry",
+                    "id": "call_1",
+                    "tool": "create_draft",
+                    "content": "`to` takes an address, not a name.\n\nFix the errors and try again.",
+                },
+                {
+                    "kind": "retry",
+                    "id": "pyd_ai_0f3c9a1e6b2d4c8e9a7b5d3f1e2c4a6b",
+                    "tool": "",
+                    "content": "Validation feedback:\nPlease return text.\n\nFix the errors and try again.",
+                },
+            ],
+        },
+    ]
+    retried, feedback = to_history(stored)[1].parts
+    assert isinstance(retried, ToolReturnPart) and retried.outcome == "retried"
+    assert (retried.tool_name, retried.tool_call_id, retried.content) == (
+        "create_draft",
+        "call_1",
+        "`to` takes an address, not a name.\n\nFix the errors and try again.",
+    )
+    assert isinstance(feedback, RetryFeedbackPart)
+    assert feedback.content == "Validation feedback:\nPlease return text.\n\nFix the errors and try again."
 
 
 def test_a_record_in_a_format_this_bailey_does_not_know_is_refused() -> None:

@@ -28,11 +28,13 @@ import emulated_providers as emulator
 import httpx
 import pytest
 import uvicorn
+from app_environments import ready_environment
 from fakes import FakeKeychain
+from running import Running
 from starlette.testclient import TestClient
 
 from bailey.apps import QUIET, RUNTIME_REQUIREMENT, app_folder, requirements_of, runner_environment
-from bailey.keys import KeychainKeys
+from bailey.keys import FILE_NAME, KeychainKeys
 from bailey.server import AppState, build_app
 from bailey.settings import Connection
 from bailey.solutions import read_solution, zip_solution
@@ -480,3 +482,33 @@ def test_each_step_reaches_the_page_as_its_task_finishes(state: AppState, enviro
     assert [name for name, _ in seen] == ["start", "step", "step", "done"]
     first_step = next(at for name, at in seen if name == "step")
     assert seen[-1][1] - first_step >= 0.5, "the first step arrived as its task finished, not with the end of the run"
+
+
+# ---------------------------------------------------------------------------
+# Bailey as a person starts it
+# ---------------------------------------------------------------------------
+
+
+def test_an_app_opens_and_runs_when_bailey_home_names_a_relative_folder(tmp_path: Path, provider_base: str) -> None:
+    """``BAILEY_HOME=./some-folder bailey``. The runner starts in the app's own folder, and a data
+    folder kept as written named the app's Python and its bundle from there, where neither is."""
+
+    home = tmp_path / "some-folder"
+    bailey = Running("./some-folder", cwd=tmp_path, extra_env={"BAILEY_PASSPHRASE": "correct horse battery"})
+    try:
+        settings = {"provider": "openai-compatible", "address": provider_base + "/local/v1", "model": "qwen3:8b"}
+        assert bailey.call("PUT", "/api/settings", settings)[0] == 200
+        status, imported = bailey.call("POST", "/api/assistants/import", _zip(_fixture_files()))
+        assert status == 200, imported
+        ready_environment(home, FIXTURE / "apps" / "digest")
+        status, describe = bailey.call("GET", f"{_app(imported['id'])}/postern/v0/describe")
+        assert status == 200, describe
+        status, answered = bailey.call("POST", f"{_app(imported['id'])}/postern/v0/run", {"inputs": {"prompt": NOTES}})
+        assert status == 200, answered
+        assert answered["output"]["value"].startswith("Newsletter Writer did:")
+        # Named in full from the folder Bailey started in, as Settings names the key file.
+        status, answer = bailey.call("GET", "/api/status")
+        assert Path(answer["data_folder"]) == home
+        assert answer["keys"]["where"] == f"an encrypted file, {Path(answer['data_folder']) / FILE_NAME}"
+    finally:
+        bailey.stop()

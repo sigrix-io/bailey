@@ -6,6 +6,44 @@ described in `VERSIONING.md`.
 
 ## [Unreleased]
 
+### Added
+
+- `lessons/` records video lessons from the app itself: Bailey on a scripted model, driven in
+  Chromium with a cursor, highlights and captions, narrated by a text-to-speech model that runs
+  on the recording machine over music generated there, and written out as a 1080p MP4 with its
+  poster, captions and chapters. The first is lesson 1, your first solution. It is a
+  maintainer's tool, in neither the wheel nor the sdist (`lessons/README.md`).
+- Lesson 2, tools that ask before they act: a solution's tool server and the key it needs, a
+  tool that reads and runs, a write that asks first, allowing once and always, and taking an
+  "always" back in Settings. Its solution is `lessons/solutions/harbour-mail-desk`, with a
+  stand-in server, and a lesson's scripted model now makes tool calls.
+- Lesson 3, apps that run a crew: a solution's app on the install screen, installing its
+  libraries once, and a run of its crew from the form it draws. Its solution is
+  `lessons/solutions/harbour-weekly-digest`; the recording makes the app's environment a
+  stand-in, as the tests do, rather than downloading 250 MB.
+- Lesson 4, check a solution: `bailey doctor`, and `bailey check` on lesson 1's solution, whose
+  seven cases pass, and on a draft that lost its quote-sources skill, whose examples fail with
+  their reasons. The recorder films a terminal for it: each command typed, then really run.
+
+### Fixed
+
+- A retry is stored as a retry again. PydanticAI 2.63 split its retry part in two: a call the
+  model must make again comes back as that call's result, marked `retried`, which Bailey stored
+  as a successful result, and a retry that answers no call, as after a reply with nothing in it,
+  comes back as a part of its own, which Bailey dropped. Both are stored as `retry` parts, in the
+  shape they had before, and go back to the model as those two parts, never as the
+  `RetryPromptPart` that 2.63 deprecates and v3 removes. A conversation stored before the split
+  still loads.
+- An app opens when `BAILEY_HOME` names a relative folder, as `BAILEY_HOME=./some-folder bailey`
+  does. Bailey kept the folder as written, so the app's Python and its bundle were named relative
+  to where Bailey started, and its runner, which starts in the app's own folder, looked for both
+  from there: "The app's runner could not start: No such file or directory." The folder is now
+  named in full where `BAILEY_HOME` is read, so every path made from it is too. Settings names
+  the key file in full, and `bailey doctor` the data folder.
+- While an answer streams, a tool call the model is to make again, as after an error from its
+  tool server, says it was given another try. PydanticAI 2.63 reports such a call with a word of
+  its own, `retried`, which the page did not know, so the call read as still running.
+
 ## [0.1.0] — 2026-11-02
 
 The app, without the store: a solution installed from a file does its job on this computer,
