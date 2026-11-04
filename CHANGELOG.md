@@ -25,6 +25,13 @@ described in `VERSIONING.md`.
   seven cases pass, and on a draft that lost its quote-sources skill, whose examples fail with
   their reasons. The recorder films a terminal for it: each command typed, then really run.
 
+### Changed
+
+- The tool contract tests, which every PydanticAI bump must pass, now store the call a tool
+  server's error sends back for another try, reload it, and send the next message on it, on each
+  kind of provider. PydanticAI 2.63 passed them while Bailey stored such a call as a successful
+  result. Nothing in the package changes.
+
 ### Fixed
 
 - A retry is stored as a retry again. PydanticAI 2.63 split its retry part in two: a call the
@@ -43,6 +50,10 @@ described in `VERSIONING.md`.
 - While an answer streams, a tool call the model is to make again, as after an error from its
   tool server, says it was given another try. PydanticAI 2.63 reports such a call with a word of
   its own, `retried`, which the page did not know, so the call read as still running.
+- Opening an app while the encrypted key file is locked, or before its passphrase is chosen, says
+  "Unlock your keys with their passphrase first.", as chat does. The route that forwards an app's
+  requests to its runner let the error through as a bare 500, which the page could only call "not
+  JSON", whatever the provider; a keychain that refuses is said so there too.
 
 ## [0.1.0] — 2026-11-02
 

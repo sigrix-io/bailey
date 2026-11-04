@@ -29,12 +29,12 @@ import httpx
 import pytest
 import uvicorn
 from app_environments import ready_environment
-from fakes import FakeKeychain
+from fakes import FakeKeychain, UnreadableKeychain
 from running import Running
 from starlette.testclient import TestClient
 
 from bailey.apps import QUIET, RUNTIME_REQUIREMENT, app_folder, requirements_of, runner_environment
-from bailey.keys import FILE_NAME, KeychainKeys
+from bailey.keys import FILE_NAME, EncryptedFileKeys, KeychainKeys
 from bailey.server import AppState, build_app
 from bailey.settings import Connection
 from bailey.solutions import read_solution, zip_solution
@@ -319,6 +319,43 @@ def test_an_app_without_its_environment_says_so_and_is_prepared_on_request(
     (asked,) = environments.prepared
     assert asked.startswith((FIXTURE / "apps/digest/requirements.txt").read_bytes().rstrip())
     assert asked.decode().strip().endswith(RUNTIME_REQUIREMENT), "the pinned runner joins the app's own requirements"
+
+
+def _asked_with(state: AppState, keys: EncryptedFileKeys | KeychainKeys, method: str, verb: str, address: str) -> Any:
+    """One of the app's verbs, asked once it is installed on a local server, with ``keys`` in place.
+
+    What the app raises comes back as the answer a browser would get, not as an exception.
+    """
+
+    with TestClient(build_app(state), base_url="http://127.0.0.1:8123", raise_server_exceptions=False) as client:
+        imported = _ready(client, provider="openai-compatible", address=address)
+        state.keys = keys
+        body = {"inputs": {"prompt": NOTES}} if method == "POST" else None
+        return client.request(method, f"{_app(imported['id'])}/postern/v0/{verb}", headers=AUTH, json=body)
+
+
+@pytest.mark.parametrize(("method", "verb"), [("GET", "describe"), ("GET", "status"), ("POST", "run")])
+def test_an_app_opened_while_the_key_file_is_locked_says_to_unlock_it(
+    state: AppState, provider_base: str, tmp_path: Path, method: str, verb: str
+) -> None:
+    """As every other route says it, in Postern's envelope. It answered a bare 500, which the page
+    could only call "not JSON", though a local server needs no key."""
+
+    EncryptedFileKeys(tmp_path / FILE_NAME).create("correct horse battery")
+    locked = EncryptedFileKeys(tmp_path / FILE_NAME)
+    answered = _asked_with(state, locked, method, verb, provider_base + "/local/v1")
+    assert answered.status_code == 423, answered.text
+    assert answered.json() == {
+        "error": {"code": "unavailable", "message": "Unlock your keys with their passphrase first."}
+    }
+    assert emulator.REQUESTS == [], "nothing was sent anywhere"
+
+
+def test_an_app_opened_while_the_keychain_refuses_says_so(state: AppState, provider_base: str) -> None:
+    refusing = KeychainKeys(UnreadableKeychain())  # type: ignore[arg-type]
+    answered = _asked_with(state, refusing, "GET", "describe", provider_base + "/local/v1")
+    assert answered.status_code == 503, answered.text
+    assert answered.json()["error"]["message"] == "The keychain refused: The user cancelled the keychain prompt."
 
 
 # ---------------------------------------------------------------------------

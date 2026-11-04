@@ -338,6 +338,14 @@ async def _json_body(request: Request, limit: int = MAX_BODY) -> dict[str, Any]:
     return value
 
 
+def _keys_refusal(error: KeysLocked | KeyringError) -> Refusal:
+    """What a key that cannot be read answers on every route: a locked key file, or a keychain that refuses."""
+
+    if isinstance(error, KeysLocked):
+        return Refusal(423, "Unlock your keys with their passphrase first.")
+    return Refusal(503, f"The keychain refused: {error}")
+
+
 def _answers(handler: Callable[[Request], Awaitable[Response]]) -> Callable[[Request], Awaitable[Response]]:
     """Turn what a handler refuses into a JSON answer with a sentence, never a traceback."""
 
@@ -348,10 +356,9 @@ def _answers(handler: Callable[[Request], Awaitable[Response]]) -> Callable[[Req
             return _error(refusal.status, refusal.message)
         except (SettingRefused, SolutionRefused, DocumentRefused) as refusal:
             return _error(400, str(refusal))
-        except KeysLocked:
-            return _error(423, "Unlock your keys with their passphrase first.")
-        except KeyringError as error:
-            return _error(503, f"The keychain refused: {error}")
+        except (KeysLocked, KeyringError) as error:
+            unreadable = _keys_refusal(error)
+            return _error(unreadable.status, unreadable.message)
 
     return endpoint
 
@@ -1285,6 +1292,10 @@ def build_app(state: AppState) -> ASGIApp:
             runner = await _app_host(state).runner(assistant_id, name, folder, connection, state.base_urls)
         except Refusal as refused:
             return _postern_error(refused.status, "unavailable", refused.message)
+        except (KeysLocked, KeyringError) as error:
+            # _connection reads the provider's key, as chat does, and is refused as chat is.
+            unreadable = _keys_refusal(error)
+            return _postern_error(unreadable.status, "unavailable", unreadable.message)
         except AppFailed as failed:
             return _postern_error(503, "unavailable", str(failed))
         url = f"{runner.base}/postern/v0/{verb}"
