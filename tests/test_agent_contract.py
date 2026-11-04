@@ -226,6 +226,24 @@ def test_the_next_message_carries_the_conversation_so_far(base: str) -> None:
     assert "the shop opens at nine" in later and "MARKER-SUMMARISE" in later
 
 
+@pytest.mark.parametrize(("provider", "path", "model"), PROVIDERS, ids=[p[0] for p in PROVIDERS])
+def test_a_reply_with_nothing_in_it_is_asked_again_and_the_next_message_leaves_that_out(
+    base: str, provider: str, path: str, model: str
+) -> None:
+    connection = _connection(base, provider, path, model)
+    first = _run(connection, ASSISTANT, f"Hello, {emulator.SAYS_NOTHING_FIRST}.")
+    assert first[-1]["type"] == "done" and len(emulator.REQUESTS) == 2
+    assert "return text" in _sent()[1], "PydanticAI asked again, and the model answered"
+    records = to_records(first[-1]["messages"], provider=provider, model=model)
+    emulator.REQUESTS.clear()
+    _run(connection, ASSISTANT, "Thanks.", to_history(records))
+    later = _sent()[0]
+    assert emulator.SAYS_NOTHING_FIRST in later and emulator.GREETING in later, "the conversation so far"
+    # The empty reply is not stored, so feedback on it would tell the model that a response it was
+    # never shown had failed (sigrix-io/bailey#31).
+    assert "return text" not in later
+
+
 def test_the_estimate_comes_from_the_bundled_prices_and_never_guesses() -> None:
     usage = RunUsage(input_tokens=1_000_000, output_tokens=1_000_000)
     priced = estimate(Connection("anthropic", "claude-sonnet-5-5", "", ""), usage)

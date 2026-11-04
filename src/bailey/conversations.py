@@ -27,10 +27,12 @@ is waiting on (:func:`pending`), so it survives a reload and a restart.
 A ``retry`` asks the model to try again, and its ``content`` says why. One that answers a
 call (its arguments were wrong, or its tool asked for another try) names the call
 (``id``) and its ``tool``, and goes back as that call's result, marked to be made again.
-One that answers no call, as after a reply with nothing in it, has no ``tool``, and its
-``id`` names nothing; it goes back as feedback on that reply. PydanticAI 2.63 split its
-retry part in two, one for each, and both are stored as the one was, so a conversation
-stored before the split still loads.
+One that answers no call has no ``tool``, and its ``id`` names nothing; it goes back as
+feedback on the reply before it. With no reply before it, it is left out: a reply with
+nothing in it but thinking is not stored, and its feedback, sent without it, would tell the
+model a response it was never shown had failed. PydanticAI 2.63 split its retry part in
+two, one for each, and both are stored as the one was, so a conversation stored before the
+split still loads.
 """
 
 from __future__ import annotations
@@ -173,8 +175,9 @@ def to_history(records: Sequence[dict[str, Any]]) -> list[ModelMessage]:
     """The stored records as the agent core's messages.
 
     A notice is left out, and consecutive ``user`` records become one request, as after a
-    run that failed: providers expect the two sides to take turns. A record in a format
-    this Bailey does not know is refused rather than half read.
+    run that failed: providers expect the two sides to take turns. Feedback with no reply
+    before it is left out too. A record in a format this Bailey does not know is refused
+    rather than half read.
     """
 
     load()
@@ -197,6 +200,8 @@ def to_history(records: Sequence[dict[str, Any]]) -> list[ModelMessage]:
             raise ValueError(f"A message stored in {record.get('format')!r}, which this Bailey does not read.")
         role = record.get("role")
         if role == "user":
+            # A notice adds nothing to the history, so it never stands between a reply and its feedback.
+            after_a_reply = bool(history) and isinstance(history[-1], ModelResponse)
             request_parts: list[ModelRequestPart] = []
             for part in record.get("parts", []):
                 kind = part.get("kind")
@@ -221,7 +226,7 @@ def to_history(records: Sequence[dict[str, Any]]) -> list[ModelMessage]:
                             outcome="retried",
                         )
                     )
-                elif kind == "retry":
+                elif kind == "retry" and after_a_reply:
                     # The format keeps no cause, and model_retry is the one PydanticAI gives a stored
                     # retry's words: they reach the model fenced, as the application's, not the person's.
                     request_parts.append(

@@ -20,7 +20,10 @@ number, or by saying the documents do not cover it; offered ``search_knowledge``
 searches first, in its own words. Given a reply to replay for a message (``REPLAYS``), it
 answers as a model following the skill the reply follows: it loads that skill, then gives
 the reply; with that skill gone, it gives the reply without what the skill grounds (its
-sources and its not-covered notes, :func:`ungrounded`). Every request is kept in ``REQUESTS``.
+sources and its not-covered notes, :func:`ungrounded`). A message holding
+``SAYS_NOTHING_FIRST`` it first answers with nothing at all, as a model whose reply is only
+its thinking does, and answers once it is told to return text. Every request is kept in
+``REQUESTS``.
 
 This proves the plumbing, never how well a model chooses a skill. The live run against
 the real providers is the owner's step before S6 merges (S1's ruling, guard 1).
@@ -67,6 +70,9 @@ GREETING = "Hello! I am a scripted model. <b>Markup</b> in an answer stays text,
 
 #: Which skill a request's words call for, in the order they are tried.
 SKILL_WORDS = (("summar", "summarise"), ("email", "draft-email"))
+
+#: A message the scripted model first answers with nothing at all (:func:`next_turn`).
+SAYS_NOTHING_FIRST = "after a moment's thought"
 
 REQUESTS: list[dict[str, Any]] = []
 
@@ -251,6 +257,10 @@ def _mailbox_turn(conversation: Conversation, asked: str) -> Turn:
 def next_turn(conversation: Conversation) -> Turn:
     """The scripted model: a reply through the mailbox's tools, or a skill loaded and answered from."""
     asked = conversation.user[-1].lower() if conversation.user else ""
+    # PydanticAI tells a model that said nothing to return text, in a system message: the Messages
+    # API's arrives as the latest user text, and the other two's as system text.
+    if SAYS_NOTHING_FIRST in asked and "return text" not in conversation.system.lower():
+        return Turn("")
     wanted = next((skill for word, skill in SKILL_WORDS if word in asked), None)
     turn: Turn
     said = conversation.user[-1].strip() if conversation.user else ""
