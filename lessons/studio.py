@@ -28,6 +28,7 @@ import math
 import os
 import queue
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -36,6 +37,7 @@ import threading
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Literal
 
@@ -45,11 +47,13 @@ import timeline
 from playwright.async_api import Locator, Page, async_playwright
 
 HERE = Path(__file__).resolve().parent
+REPO = HERE.parent
 WIDTH, HEIGHT, SCALE = 1280, 720, 1.5
 #: A voice starts a moment after its caption fades in, and the next line waits a breath after it.
 VOICE_LEAD = 0.25
 VOICE_GAP = 0.45
 LAUNCH = re.compile(r"Open it at (http://127\.0\.0\.1:\d+/#token=\S+)")
+MODEL = re.compile(r"Scripted model at (\S+)")
 #: The recording's own key file, in its own data folder, holds only a made-up key.
 PASSPHRASE = "a passphrase for the recording"  # noqa: S105 -- made up, for a key file thrown away
 
@@ -69,9 +73,10 @@ class Lesson:
     #: Steps before the recording starts, on the page itself (``studio.page``): what an
     #: earlier lesson showed, such as choosing a provider, so this one starts where it left off.
     setup: Callable[[Studio], Awaitable[None]] | None = None
-    #: Stand-in programs on Bailey's PATH, each a name and the Python script it runs, such as
-    #: the tool server a solution's mcp.json starts (``harbour_mail.py``).
-    commands: Mapping[str, Path] = field(default_factory=dict)
+    #: Stand-in programs on Bailey's PATH and the terminal's, each a name and what it runs with this
+    #: Python: a script and its first arguments, such as the tool server a solution's mcp.json
+    #: starts (``harbour_mail.py``), or ``bailey`` itself on the scripted model.
+    commands: Mapping[str, Sequence[str | Path]] = field(default_factory=dict)
     #: For a lesson that runs an app: its environment is a stand-in made in seconds, and each of
     #: its crew's tasks takes this many seconds (``scripted_bailey.py``).
     app_task_seconds: float | None = None
@@ -94,11 +99,14 @@ class Bailey:
             # tool server Bailey starts inherits, as it would a command the person had installed.
             folder = work / "bin"
             folder.mkdir()
-            for name, script in lesson.commands.items():
+            for name, runs in lesson.commands.items():
                 launcher = folder / name
-                launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
+                argv = " ".join(shlex.quote(str(part)) for part in (sys.executable, *runs))
+                launcher.write_text(f'#!/bin/sh\nexec {argv} "$@"\n', encoding="utf-8")
                 launcher.chmod(0o755)
             env["PATH"] = os.pathsep.join([str(folder), env.get("PATH", "")])
+        self.env = env
+        self.model_url = ""
         self.process = subprocess.Popen(  # noqa: S603 -- this folder's own launcher, a fixed argv
             [sys.executable, str(HERE / "scripted_bailey.py"), str(answers)],
             cwd=work,
@@ -120,6 +128,8 @@ class Bailey:
             if line is None:
                 raise RuntimeError("Bailey stopped before printing its address:\n" + "".join(printed))
             printed.append(line)
+            if model := MODEL.search(line):
+                self.model_url = model.group(1)
             if match := LAUNCH.search(line):
                 self.address = match.group(1)
                 return
@@ -136,6 +146,30 @@ class Bailey:
             self.process.wait(timeout=30)
         except subprocess.TimeoutExpired:
             self.process.kill()
+
+
+class _TerminalFiles(BaseHTTPRequestHandler):
+    """The terminal a lesson films, and Bailey's mark for the overlay's cards: nothing else."""
+
+    FILES = {
+        "/": (HERE / "terminal.html", "text/html; charset=utf-8"),
+        "/static/icon.svg": (REPO / "src" / "bailey" / "web" / "icon.svg", "image/svg+xml"),
+    }
+
+    def do_GET(self) -> None:
+        found = self.FILES.get(self.path.split("?", 1)[0])
+        if found is None:
+            self.send_error(404)
+            return
+        body = found[0].read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", found[1])
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        return
 
 
 @dataclass
@@ -161,6 +195,10 @@ class Studio:
     marks: list[timeline.Mark] = field(default_factory=list)
     voice_until: float = 0.0
     mouse: tuple[float, float] = (WIDTH / 2, HEIGHT / 2)
+    #: The terminal page's address, and what a command typed there runs with.
+    terminal_url: str = ""
+    shell_env: Mapping[str, str] = field(default_factory=dict)
+    where: str = "~"
 
     def clock(self) -> float:
         return time.time() - self.started
@@ -264,6 +302,43 @@ class Studio:
         await self.page.mouse.up()
         await self.sleep(350)
 
+    async def terminal(self, title: str = "Terminal", where: str = "~") -> None:
+        """Leave Bailey's page for the terminal, where shell() runs commands, and put the pointer away."""
+
+        self.where = where
+        await self.page.goto(self.terminal_url)
+        await self.page.wait_for_function("() => window.__term && window.__demo && window.__demo.ready()")
+        await self.page.evaluate(
+            "([title, where]) => { window.__term.title(title); window.__term.prompt(where); window.__demo.pointer(false); }",
+            [title, where],
+        )
+
+    async def shell(self, command: str, delay_ms: float = 45) -> int:
+        """Type a command at the prompt, run it for real in a shell of its own, and show what it prints as it prints it.
+
+        It runs in the work folder, with Bailey's environment and the lesson's stand-in commands on
+        the PATH, ``bailey`` among them when the lesson puts it there. Its exit status is returned.
+        """
+
+        await self.page.evaluate("([text, delay]) => window.__term.type(text, delay)", [command, delay_ms])
+        await self.sleep(400)
+        await self.page.evaluate("() => window.__term.enter()")
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=self.work,
+            env=dict(self.shell_env),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        if process.stdout is not None:
+            while line := await process.stdout.readline():
+                await self.page.evaluate(
+                    "text => window.__term.write(text)", line.decode("utf-8", "replace").rstrip("\n")
+                )
+        status = await process.wait()
+        await self.page.evaluate("where => window.__term.prompt(where)", self.where)
+        return status
+
     async def type(self, locator: Locator, text: str, delay_ms: float = 28) -> None:
         """Type as a person does. A new line is Shift+Enter, since Enter sends."""
 
@@ -299,6 +374,8 @@ async def _capture(
     frames: list[tuple[Path, float]] = []
     acks: set[asyncio.Future[Any]] = set()
     bailey = Bailey(work, lesson)
+    files = ThreadingHTTPServer(("127.0.0.1", 0), _TerminalFiles)
+    threading.Thread(target=files.serve_forever, daemon=True).start()
     try:
         async with async_playwright() as playwright:
             # The scale is the browser's own, not an emulated one: only then are screencast
@@ -311,6 +388,13 @@ async def _capture(
             await context.add_init_script(path=HERE / "overlay.js")
             page = await context.new_page()
             studio = Studio(page, lesson, clips, work)
+            studio.terminal_url = f"http://127.0.0.1:{files.server_address[1]}/"
+            studio.shell_env = {
+                **bailey.env,
+                "LESSON_MODEL_URL": bailey.model_url,
+                "PYTHONUNBUFFERED": "1",
+                "TERM": "xterm-256color",
+            }
             try:
                 await page.goto(bailey.address)
                 await page.wait_for_function("() => window.__demo && window.__demo.ready()")
@@ -365,6 +449,7 @@ async def _capture(
                 await context.close()
                 await browser.close()
     finally:
+        files.shutdown()
         bailey.stop()
     return studio, frames, stopped
 

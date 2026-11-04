@@ -21,6 +21,9 @@ described in `VERSIONING.md`.
   libraries once, and a run of its crew from the form it draws. Its solution is
   `lessons/solutions/harbour-weekly-digest`; the recording makes the app's environment a
   stand-in, as the tests do, rather than downloading 250 MB.
+- Lesson 4, check a solution: `bailey doctor`, and `bailey check` on lesson 1's solution, whose
+  seven cases pass, and on a draft that lost its quote-sources skill, whose examples fail with
+  their reasons. The recorder films a terminal for it: each command typed, then really run.
 
 ## [0.1.0] — 2026-11-02
 

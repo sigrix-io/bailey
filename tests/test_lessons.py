@@ -140,7 +140,8 @@ def test_a_message_the_lesson_scripts_no_reply_for_is_left_to_the_emulator(scrip
 
 def test_a_scripted_reply_loads_its_skill_then_cites_the_passage_holding_its_phrase(scripted: ModuleType) -> None:
     system = (
-        "Draft replies.\n\n## Your documents\n\nBelow are the person's documents, in numbered passages.\n\n"
+        "Draft replies.\n\n## Skills\n\n- `quote-sources`: Quotes the documents.\n\n"
+        "## Your documents\n\nBelow are the person's documents, in numbered passages.\n\n"
         "### Document: policies.md (Shop policies)\n\n#### Returns\n"
         "[P3] - You can return a book within 30 days of delivery, for any reason.\n"
     )
@@ -156,3 +157,20 @@ def test_a_scripted_reply_loads_its_skill_then_cites_the_passage_holding_its_phr
     conversation.got("load_skill", "# Quote sources")
     # Once per passage: the second phrase is in the same passage, so it is not cited again.
     assert scripted.answer(conversation, [reply]).text == "Yes, within 30 days [P3], for any reason."
+
+
+def test_a_reply_whose_skill_the_solution_lost_comes_without_what_the_skill_grounds(scripted: ModuleType) -> None:
+    reply = {
+        "when": "gift wrap",
+        "skill": "quote-sources",
+        "reply": [["NOT COVERED: The documents do not mention gift wrapping.\n\nHi Keiko, the team will reply.", None]],
+    }
+    lost = scripted.emulator.Conversation(
+        system="Draft replies.\n\n## Skills\n\n- `reply-style`: Keeps it short.\n",
+        user=["Do you gift wrap?"],
+        tools=["load_skill"],
+    )
+
+    turn = scripted.answer(lost, [reply])
+    # No load of a skill it does not have, and no note of what the documents leave out.
+    assert (turn.calls, turn.text) == ([], "Hi Keiko, the team will reply.")
