@@ -13,6 +13,10 @@ described in `VERSIONING.md`.
   on the recording machine over music generated there, and written out as a 1080p MP4 with its
   poster, captions and chapters. The first is lesson 1, your first solution. It is a
   maintainer's tool, in neither the wheel nor the sdist (`lessons/README.md`).
+- Lesson 2, tools that ask before they act: a solution's tool server and the key it needs, a
+  tool that reads and runs, a write that asks first, allowing once and always, and taking an
+  "always" back in Settings. Its solution is `lessons/solutions/harbour-mail-desk`, with a
+  stand-in server, and a lesson's scripted model now makes tool calls.
 
 ## [0.1.0] — 2026-11-02
 

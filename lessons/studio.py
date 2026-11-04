@@ -66,18 +66,34 @@ class Lesson:
     replies: Sequence[Mapping[str, Any]] = ()
     voice: str = "af_heart"
     color_scheme: Literal["light", "dark"] = "light"
+    #: Steps before the recording starts, on the page itself (``studio.page``): what an
+    #: earlier lesson showed, such as choosing a provider, so this one starts where it left off.
+    setup: Callable[[Studio], Awaitable[None]] | None = None
+    #: Stand-in programs on Bailey's PATH, each a name and the Python script it runs, such as
+    #: the tool server a solution's mcp.json starts (``harbour_mail.py``).
+    commands: Mapping[str, Path] = field(default_factory=dict)
 
 
 class Bailey:
     """Bailey on a scripted model, in a data folder of its own, and the address it printed."""
 
-    def __init__(self, work: Path, replies: Sequence[Mapping[str, Any]]) -> None:
+    def __init__(self, work: Path, replies: Sequence[Mapping[str, Any]], commands: Mapping[str, Path]) -> None:
         answers = work / "replies.json"
         answers.write_text(json.dumps(list(replies)), encoding="utf-8")
         # Nothing it reaches is past this computer, so no proxy applies. The data folder is named
         # relative to the work folder, so the page names the key file as "Bailey/keys.enc".
         env = {key: value for key, value in os.environ.items() if not key.lower().endswith("_proxy")}
         env |= {"BAILEY_HOME": "Bailey", "BAILEY_KEYS": "file", "BAILEY_PASSPHRASE": PASSPHRASE}
+        if commands:
+            # Each stand-in is a small shell script ahead of everything else on the PATH, which a
+            # tool server Bailey starts inherits, as it would a command the person had installed.
+            folder = work / "bin"
+            folder.mkdir()
+            for name, script in commands.items():
+                launcher = folder / name
+                launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
+                launcher.chmod(0o755)
+            env["PATH"] = os.pathsep.join([str(folder), env.get("PATH", "")])
         self.process = subprocess.Popen(  # noqa: S603 -- this folder's own launcher, a fixed argv
             [sys.executable, str(HERE / "scripted_bailey.py"), str(answers)],
             cwd=work,
@@ -263,7 +279,7 @@ async def _capture(
     frames_folder.mkdir()
     frames: list[tuple[Path, float]] = []
     acks: set[asyncio.Future[Any]] = set()
-    bailey = Bailey(work, lesson.replies)
+    bailey = Bailey(work, lesson.replies, lesson.commands)
     try:
         async with async_playwright() as playwright:
             # The scale is the browser's own, not an emulated one: only then are screencast
@@ -279,6 +295,17 @@ async def _capture(
             try:
                 await page.goto(bailey.address)
                 await page.wait_for_function("() => window.__demo && window.__demo.ready()")
+                # The page is ready once it has opened Chat: its menu shows a moment earlier, while it
+                # still loads its settings, and a click then is undone when it opens Chat.
+                await page.locator('[data-panel="chat"]').wait_for(state="visible")
+                if lesson.setup is not None:
+                    await lesson.setup(studio)
+                    # Setup is not part of the video: nothing it did is on its timeline.
+                    studio.captions.clear()
+                    studio.clicks.clear()
+                    studio.marks.clear()
+                    studio.spoken.clear()
+                    studio.spoken_only.clear()
                 await page.mouse.move(*studio.mouse)
                 await studio.card(lesson.title, 700)
                 cdp = await context.new_cdp_session(page)

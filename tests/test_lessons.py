@@ -1,8 +1,10 @@
-"""The rules a recorded lesson's captions and chapters keep (``lessons/timeline.py``).
+"""The rules a recorded lesson keeps: its captions and chapters (``lessons/timeline.py``), and its scripted model.
 
 The recorder drives a browser and is run by hand (``lessons/README.md``); what it writes down
 is pure, and held here. Chapters follow YouTube's rules, since a video that breaks them shows
-none: the first starts at 0:00, and none is shorter than ten seconds.
+none: the first starts at 0:00, and none is shorter than ten seconds. The scripted model
+(``lessons/scripted_bailey.py``) answers as a lesson says, and a script that no longer fits
+the app fails the recording rather than filming something the app would not do.
 """
 
 from __future__ import annotations
@@ -17,14 +19,23 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.fixture(scope="module")
-def timeline() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("lessons_timeline", ROOT / "lessons" / "timeline.py")
+def _lessons_module(name: str) -> ModuleType:
+    spec = importlib.util.spec_from_file_location(f"lessons_{name}", ROOT / "lessons" / f"{name}.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.fixture(scope="module")
+def timeline() -> ModuleType:
+    return _lessons_module("timeline")
+
+
+@pytest.fixture(scope="module")
+def scripted() -> ModuleType:
+    return _lessons_module("scripted_bailey")
 
 
 def test_a_time_is_written_as_webvtt_writes_it_and_as_a_description_gives_it(timeline: ModuleType) -> None:
@@ -84,3 +95,64 @@ def test_the_chapters_go_into_a_description_and_into_the_mp4(timeline: ModuleTyp
     assert metadata.startswith(";FFMETADATA1\ntitle=Lesson 1: a\\=b\\; \\#1 \\\\ more\n")
     assert "[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=19600\ntitle=Finding your way\n" in metadata
     assert "[CHAPTER]\nTIMEBASE=1/1000\nSTART=19600\nEND=79000\ntitle=Choose your AI\n" in metadata
+
+
+MAIL_REPLY = {
+    "when": "find Annie's email",
+    "calls": [
+        {"tool": "search_mail", "args": {"query": "Annie"}},
+        {"tool": "save_draft", "args": {"email_id": "m-201", "body": "Hi Annie"}},
+    ],
+    "reply": [["Saved as a draft.", None]],
+}
+
+
+def test_a_scripted_reply_makes_its_calls_in_order_one_a_turn_then_answers(scripted: ModuleType) -> None:
+    emulator = scripted.emulator
+    conversation = emulator.Conversation(user=["Please find Annie's email."], tools=["search_mail", "save_draft"])
+
+    first = scripted.answer(conversation, [MAIL_REPLY])
+    assert [(call.name, call.arguments) for call in first.calls] == [("search_mail", {"query": "Annie"})]
+    conversation.got("search_mail", '[{"id": "m-201"}]')
+    second = scripted.answer(conversation, [MAIL_REPLY])
+    assert [(call.name, call.arguments) for call in second.calls] == [
+        ("save_draft", {"email_id": "m-201", "body": "Hi Annie"})
+    ]
+    conversation.got("save_draft", "Draft saved.")
+    last = scripted.answer(conversation, [MAIL_REPLY])
+    assert (last.text, last.calls) == ("Saved as a draft.", [])
+
+
+def test_a_script_calling_a_tool_the_app_did_not_offer_fails_the_recording(scripted: ModuleType) -> None:
+    conversation = scripted.emulator.Conversation(user=["Find Annie's email."], tools=["search_mail"])
+
+    first = scripted.answer(conversation, [MAIL_REPLY])
+    conversation.got(first.calls[0].name, "[]")
+    with pytest.raises(scripted.emulator.Violation, match="save_draft"):
+        scripted.answer(conversation, [MAIL_REPLY])
+
+
+def test_a_message_the_lesson_scripts_no_reply_for_is_left_to_the_emulator(scripted: ModuleType) -> None:
+    conversation = scripted.emulator.Conversation(user=["Hello"], tools=["search_mail", "save_draft"])
+
+    assert scripted.answer(conversation, [MAIL_REPLY]) is None
+
+
+def test_a_scripted_reply_loads_its_skill_then_cites_the_passage_holding_its_phrase(scripted: ModuleType) -> None:
+    system = (
+        "Draft replies.\n\n## Your documents\n\nBelow are the person's documents, in numbered passages.\n\n"
+        "### Document: policies.md (Shop policies)\n\n#### Returns\n"
+        "[P3] - You can return a book within 30 days of delivery, for any reason.\n"
+    )
+    conversation = scripted.emulator.Conversation(system=system, user=["Can I send it back?"], tools=["load_skill"])
+    reply = {
+        "when": "send it back",
+        "skill": "quote-sources",
+        "reply": [["Yes, within 30 days", "30 days of delivery"], [", for any reason", "for any reason"], [".", None]],
+    }
+
+    first = scripted.answer(conversation, [reply])
+    assert [(call.name, call.arguments) for call in first.calls] == [("load_skill", {"name": "quote-sources"})]
+    conversation.got("load_skill", "# Quote sources")
+    # Once per passage: the second phrase is in the same passage, so it is not cited again.
+    assert scripted.answer(conversation, [reply]).text == "Yes, within 30 days [P3], for any reason."

@@ -1,0 +1,14 @@
+{
+  "format_version": "0.1",
+  "name": "harbour-mail-desk",
+  "title": "Harbour mail desk",
+  "description": "Works in a small bookshop's mailbox: finds a customer's email, and saves a draft reply to it once you allow it.",
+  "instructions": "skills/mail-desk/SKILL.md",
+  "mcp": "mcp.json",
+  "tools": {
+    "harbour-mail": {
+      "tools": ["search_mail", "save_draft"],
+      "write_tools": ["save_draft"]
+    }
+  }
+}
