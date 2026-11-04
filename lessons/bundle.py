@@ -8,9 +8,9 @@ format is Sigrix's (``src/services/learn_import.py`` in sigrix-io/sigrix); this 
 
 A lesson records into a folder of its own (``studio.record``), named by its page's ``folder``, which
 is its bundle: the files above, and ``chapters.txt`` for a YouTube description, which an import
-passes over. Its page is ``pages.py``'s, written as ``lesson.json`` when it is recorded and again
-when it is packed, so a corrected summary reaches the site with a pack and an import, and no
-recording.
+passes over (``youtube.py`` writes the rest of that upload). Its page is ``pages.py``'s, written as
+``lesson.json`` when it is recorded and again when it is packed, so a corrected summary reaches the
+site with a pack and an import, and no recording.
 """
 
 from __future__ import annotations
@@ -35,6 +35,10 @@ RECORDED = (VIDEO, CAPTIONS, CHAPTERS, COVER)
 PACKED = (PAGE, *RECORDED)
 #: The media is compressed already; the text is not.
 _STORED = frozenset({VIDEO, COVER})
+#: The tag every lesson carries on sigrix.io. Learn lists them by it (``/learn/tag/bailey``), and so
+#: does Bailey's own page there (``/open-source/bailey``), which shows the learning paths of the
+#: lessons that carry it.
+TAG = "bailey"
 
 
 @dataclass(frozen=True)
@@ -49,7 +53,10 @@ class Page:
     summary: str
     body: str
     category: str = "tutorials"
-    tags: tuple[str, ...] = ("bailey", "video")
+    tags: tuple[str, ...] = (TAG, "video")
+    #: The same video on YouTube, once it is uploaded there: its page links to it, and never embeds
+    #: it. Left out of ``lesson.json`` until then, so an import keeps a link the page already has.
+    youtube_url: str = ""
 
 
 @dataclass(frozen=True)
@@ -63,7 +70,7 @@ class LearningPath:
 
 
 def page_json(page: Page) -> dict[str, Any]:
-    return {
+    data: dict[str, Any] = {
         "format": LESSON_FORMAT,
         "slug": page.slug,
         "title": page.title,
@@ -72,6 +79,9 @@ def page_json(page: Page) -> dict[str, Any]:
         "tags": list(page.tags),
         "body_markdown": page.body,
     }
+    if page.youtube_url:
+        data["youtube_url"] = page.youtube_url
+    return data
 
 
 def path_json(path: LearningPath) -> dict[str, Any]:

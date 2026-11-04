@@ -28,6 +28,10 @@ described in `VERSIONING.md`.
   into a folder of its own, its media under fixed names beside its page on sigrix.io
   (`lesson.json`, from `lessons/pages.py`), and `python lessons/pack.py` zips the recorded lessons
   with their learning path. Nothing of a lesson's page is typed by hand any more.
+- The README links the four video lessons on Sigrix Learn. `python lessons/youtube.py` writes each
+  recorded lesson's YouTube title, description and tags from its page, with its chapters and a
+  link back to its page, held to what YouTube refuses. A lesson's page can name its YouTube video
+  (`youtube_url`), and each page now says what in its lesson is scripted or a stand-in.
 
 ### Changed
 

@@ -30,6 +30,15 @@ Bailey runs **solutions** instead: complete, versioned packages for one job, suc
 
 Solutions can be free, or bought on [Sigrix](https://sigrix.io), where builders sell what they make for Bailey.
 
+## See it in seven minutes
+
+Four short lessons on [Sigrix Learn](https://sigrix.io/learn/tag/bailey), each with its chapters and a transcript. They are filmed in the app itself, on a scripted model, so each comes out the same every time it is recorded.
+
+1. [Your first solution](https://sigrix.io/learn/bailey-lesson-1-your-first-solution): choose your AI, install a solution, and give it a real job, answered from your own documents.
+2. [Tools that ask before they act](https://sigrix.io/learn/bailey-lesson-2-tools-that-ask-before-they-act): what a solution's tools may do, and how you answer one that asks first.
+3. [Apps that run a crew](https://sigrix.io/learn/bailey-lesson-3-apps-that-run-a-crew): a solution's app, set up once, running its crew of agents from the form it draws.
+4. [Check a solution](https://sigrix.io/learn/bailey-lesson-4-check-a-solution): `bailey doctor` and `bailey check`, from your terminal.
+
 ## Start it
 
 ```sh

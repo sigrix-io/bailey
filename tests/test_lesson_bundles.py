@@ -7,12 +7,16 @@ zips the recorded lessons with their learning path into one file the console imp
 
 Held here: every page is one the import takes (the format is Sigrix's, and the rules it enforces
 are restated where they are checked), each lesson file names its page, and a pack carries exactly the
-files the import reads, its pages written afresh, and refuses a lesson not recorded whole.
+files the import reads, its pages written afresh, and refuses a lesson not recorded whole. Each
+lesson's YouTube upload (``lessons/youtube.py``) is written from the same page and held to what
+YouTube refuses, every page says what in its lesson is scripted, and the README links the lessons
+in their path's order.
 """
 
 from __future__ import annotations
 
 import ast
+import dataclasses
 import importlib.util
 import json
 import re
@@ -66,6 +70,20 @@ def pack_script(bundle: ModuleType, pages: ModuleType) -> ModuleType:
         del sys.modules["bundle"], sys.modules["pages"]
 
 
+@pytest.fixture(scope="module")
+def timeline() -> ModuleType:
+    return _load("timeline")
+
+
+@pytest.fixture(scope="module")
+def youtube(bundle: ModuleType, pages: ModuleType, timeline: ModuleType) -> ModuleType:
+    sys.modules["bundle"], sys.modules["pages"], sys.modules["timeline"] = bundle, pages, timeline
+    try:
+        return _load("youtube")
+    finally:
+        del sys.modules["bundle"], sys.modules["pages"], sys.modules["timeline"]
+
+
 def _every_page(pages: ModuleType, bundle: ModuleType) -> list[object]:
     return [value for value in vars(pages).values() if isinstance(value, bundle.Page)]
 
@@ -111,6 +129,35 @@ def test_each_lesson_file_names_one_page_and_every_page_has_its_lesson(pages: Mo
         name for name, value in vars(pages).items() if value in pages.PATH.lessons
     ), named
     assert len(named) == 4, "a lesson file was found by its Lesson(...) call"
+
+
+def test_every_page_carries_the_tag_sigrix_lists_the_lessons_by(pages: ModuleType, bundle: ModuleType) -> None:
+    """Sigrix's ``/learn/tag/bailey`` lists the lessons by this tag, and ``/open-source/bailey`` shows the learning
+    paths of the lessons that carry it (``BAILEY_LEARN_TAG`` in sigrix-io/sigrix's ``src/services/open_source.py``):
+    a page without it is on neither."""
+
+    assert bundle.TAG == "bailey"
+    for page in pages.PATH.lessons:
+        assert bundle.TAG in bundle.page_json(page)["tags"], page.slug
+
+
+def test_every_page_says_what_in_its_lesson_is_scripted(pages: ModuleType) -> None:
+    """A lesson says its answers are scripted wherever it is published (``lessons/README.md``), and its page is."""
+
+    for page in pages.PATH.lessons:
+        assert "It is filmed in Bailey itself" in page.body and "scripted" in page.body, page.slug
+
+
+def test_a_youtube_link_is_written_once_a_page_has_one(pages: ModuleType, bundle: ModuleType) -> None:
+    assert "youtube_url" not in bundle.page_json(pages.FIRST_SOLUTION), "left out, so an import keeps the page's link"
+    uploaded = dataclasses.replace(pages.FIRST_SOLUTION, youtube_url="https://www.youtube.com/watch?v=abcdefghijk")
+    assert bundle.page_json(uploaded)["youtube_url"] == "https://www.youtube.com/watch?v=abcdefghijk"
+
+
+def test_the_readme_links_each_lesson_in_the_paths_order(pages: ModuleType) -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    linked = re.findall(r"\]\(https://sigrix\.io/learn/([a-z0-9-]+)\)", readme)
+    assert linked == [page.slug for page in pages.PATH.lessons], "a lesson's address is its slug"
 
 
 def test_a_page_is_written_as_the_import_reads_it(tmp_path: Path, pages: ModuleType, bundle: ModuleType) -> None:
@@ -194,3 +241,130 @@ def test_pack_py_writes_the_pack_or_says_what_to_record(
     assert pack_script.main(["--out", str(tmp_path)]) == 0
     assert capsys.readouterr().out.strip() == str(tmp_path / "bailey-lessons.zip")
     assert zipfile.is_zipfile(tmp_path / "bailey-lessons.zip")
+
+
+#: A recording's chapters as ``timeline.youtube_chapters`` writes them: lesson 1's.
+CHAPTERS = "0:00 Finding your way\n0:19 1 · Choose your AI\n0:38 2 · Install a solution\n1:20 3 · Give it documents\n"
+
+
+def _with_chapters(out: Path, pages: ModuleType, text: str = CHAPTERS) -> None:
+    for page in pages.PATH.lessons:
+        (out / page.folder / "chapters.txt").write_text(text, encoding="utf-8")
+
+
+def test_each_lesson_gets_its_youtube_upload_written_from_its_page(
+    tmp_path: Path, pages: ModuleType, youtube: ModuleType
+) -> None:
+    _recorded(tmp_path, pages)
+    _with_chapters(tmp_path, pages)
+    link = "https://sigrix.io/go/abc123"
+
+    written = youtube.write(tmp_path, pages.PATH, {pages.TOOLS_THAT_ASK.slug: link})
+
+    assert written == [tmp_path / page.folder / "youtube.txt" for page in pages.PATH.lessons]
+    first = written[0].read_text(encoding="utf-8")
+    assert first.startswith(f"TITLE\n{pages.FIRST_SOLUTION.title}\n\nDESCRIPTION\n{pages.FIRST_SOLUTION.summary}\n\n")
+    assert f"on sigrix.io: https://sigrix.io/learn/{pages.FIRST_SOLUTION.slug}\n" in first, (
+        "its page, with no link given"
+    )
+    assert "\nChapters\n0:00 Finding your way\n0:19 1 · Choose your AI\n0:38 2 · Install a solution\n" in first
+    assert youtube.SCRIPTED in first, "it says its answers are scripted, as a lesson does wherever it is published"
+    assert "Lesson 1 of 4 in Bailey: getting started. All of them: https://sigrix.io/learn/tag/bailey\n" in first
+    assert f"Get Bailey: {youtube.BAILEY_PAGE}\n" in first
+    assert first.endswith("\n\nTAGS\n" + ", ".join(youtube.TAGS) + "\n")
+    second = written[1].read_text(encoding="utf-8")
+    assert f"on sigrix.io: {link}\n" in second, "the tracked link the Learn console made for its post"
+    assert f"sigrix.io/learn/{pages.TOOLS_THAT_ASK.slug}" not in second
+
+
+def test_the_chapters_the_recorder_writes_are_ones_youtube_shows(youtube: ModuleType, timeline: ModuleType) -> None:
+    marks = [
+        timeline.Mark(0.4, "Finding your way"),
+        timeline.Mark(19.2, "1 · Choose your AI"),
+        timeline.Mark(38.0, "2 · Install a solution"),
+        timeline.Mark(80.5, "3 · Give it documents"),
+    ]
+    written = timeline.youtube_chapters(timeline.chapters(marks, 133.0))
+
+    assert youtube.chapters(written) == [
+        (0, "Finding your way"),
+        (19, "1 · Choose your AI"),
+        (38, "2 · Install a solution"),
+        (80, "3 · Give it documents"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("text", "says"),
+    [
+        ("0:00 One\n0:30 Two\n", "3 or more"),
+        ("0:05 One\n0:30 Two\n1:00 Three\n", "YouTube wants 0:00"),
+        ("0:00 One\n0:30 Two\n0:35 Three\n", "at least 10 s"),
+        ("0:00 One\n0:30 Two\nlater Three\n", "not a time and a title"),
+    ],
+)
+def test_chapters_youtube_would_not_show_stop_the_command(youtube: ModuleType, text: str, says: str) -> None:
+    with pytest.raises(ValueError, match=re.escape(says)):
+        youtube.chapters(text)
+
+
+@pytest.mark.parametrize(
+    ("change", "says"),
+    [
+        ({"title": "x" * 101}, "YouTube takes 100"),
+        ({"title": "Bailey <lesson>"}, "its title holds < or >"),
+        ({"summary": "a > b"}, "its description holds < or >"),
+        ({"summary": "é" * 2600}, "YouTube takes 5000"),
+    ],
+)
+def test_what_youtube_refuses_stops_the_command(
+    youtube: ModuleType, pages: ModuleType, change: dict[str, str], says: str
+) -> None:
+    page = dataclasses.replace(pages.FIRST_SOLUTION, **change)
+
+    with pytest.raises(ValueError, match=re.escape(says)):
+        youtube.upload_for(page, number=1, path=pages.PATH, chapters_text=CHAPTERS)
+
+
+def test_the_tags_are_held_to_youtubes_count(youtube: ModuleType) -> None:
+    assert youtube._tags_length(("a b", "cd")) == len('"a b",cd')
+    assert youtube._tags_length(youtube.TAGS) <= youtube.TAGS_MAX
+
+
+def test_a_lesson_that_breaks_a_rule_leaves_no_upload_written(
+    tmp_path: Path, pages: ModuleType, youtube: ModuleType
+) -> None:
+    _recorded(tmp_path, pages)
+    _with_chapters(tmp_path, pages)
+    (tmp_path / pages.CHECK_A_SOLUTION.folder / "chapters.txt").write_text("0:00 Only\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="3 or more"):
+        youtube.write(tmp_path, pages.PATH)
+    assert not list(tmp_path.rglob("youtube.txt")), "the first three are not written either"
+
+
+def test_a_link_names_a_lesson_and_is_the_consoles(tmp_path: Path, pages: ModuleType, youtube: ModuleType) -> None:
+    _recorded(tmp_path, pages)
+    _with_chapters(tmp_path, pages)
+
+    with pytest.raises(ValueError, match="No lesson has this slug: bailey-lesson-9"):
+        youtube.write(tmp_path, pages.PATH, {"bailey-lesson-9": "https://sigrix.io/go/x"})
+    with pytest.raises(ValueError, match="starts with https://"):
+        youtube.write(tmp_path, pages.PATH, {pages.FIRST_SOLUTION.slug: "sigrix.io/go/x"})
+
+
+def test_youtube_py_writes_the_uploads_or_says_what_to_record(
+    tmp_path: Path, pages: ModuleType, youtube: ModuleType, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert youtube.main(["--out", str(tmp_path)]) == 1
+    assert "Record these lessons first" in capsys.readouterr().err
+
+    _recorded(tmp_path, pages)
+    _with_chapters(tmp_path, pages)
+    link = f"{pages.FIRST_SOLUTION.slug}=https://sigrix.io/go/abc"
+    assert youtube.main(["--out", str(tmp_path), "--link", link]) == 0
+    assert capsys.readouterr().out.split() == [
+        str(tmp_path / page.folder / "youtube.txt") for page in pages.PATH.lessons
+    ]
+    first = (tmp_path / pages.FIRST_SOLUTION.folder / "youtube.txt").read_text(encoding="utf-8")
+    assert "on sigrix.io: https://sigrix.io/go/abc\n" in first
