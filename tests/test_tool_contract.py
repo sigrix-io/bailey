@@ -26,9 +26,10 @@ from typing import Any, TypeVar
 
 import emulated_providers as emulator
 import pytest
+from pydantic_ai.messages import ToolReturnPart
 
 from bailey.agent import DECLINED, answer
-from bailey.conversations import pending, to_history, to_records
+from bailey.conversations import pending, shown, to_history, to_records
 from bailey.settings import Connection
 from bailey.solutions import Assistant, Server, Skill
 from bailey.store import Store
@@ -244,6 +245,22 @@ def test_a_tool_that_fails_is_given_another_try_and_the_page_is_told_so(
     assert _done(events)["asked"] == []
     assert _outcomes(events) == {"search_threads": "success", "create_draft": "retry"}
     assert "The draft tool said:" in _text(events), "the model was given the error, and answered"
+
+    # And stored so: as a retry, which the page draws after a reload as it did live, and which goes
+    # back to the model as the call's error, so the next message goes through on it.
+    records = _records(connection, _done(events))
+    answers = [part["kind"] for record in records for part in record["parts"] if part.get("tool") == "create_draft"]
+    assert answers == ["tool_call", "retry"]
+    assert {tool["tool"]: tool["outcome"] for tool in shown(records)[-1]["tools"]} == _outcomes(events)
+    history = to_history(records)
+    (retried,) = [
+        part
+        for message in history
+        for part in message.parts
+        if isinstance(part, ToolReturnPart) and part.tool_name == "create_draft"
+    ]
+    assert retried.outcome == "retried", "the model is told the call failed, not that it ran"
+    assert _done(broken.turn(connection, history, "Thanks.", assistant=assistant)), "the next message goes through"
 
 
 def test_every_tool_of_a_server_with_no_declaration_asks(mailbox: Mailbox) -> None:
