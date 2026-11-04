@@ -39,6 +39,13 @@ class RefusingKeychain(FakeKeychain):
         raise KeyringError("The user cancelled the keychain prompt.")
 
 
+class UnreadableKeychain(FakeKeychain):
+    """A keychain that refuses every read, as a locked one whose prompt was cancelled does."""
+
+    def get_password(self, service: str, username: str) -> str | None:
+        raise KeyringError("The user cancelled the keychain prompt.")
+
+
 class FakeEmbedder:
     """A stand-in for the search model: words hashed into a vector, so texts that share words point
     the same way. Deterministic, and nothing to download; the real model's own check is

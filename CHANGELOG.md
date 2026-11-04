@@ -50,6 +50,10 @@ described in `VERSIONING.md`.
 - While an answer streams, a tool call the model is to make again, as after an error from its
   tool server, says it was given another try. PydanticAI 2.63 reports such a call with a word of
   its own, `retried`, which the page did not know, so the call read as still running.
+- Opening an app while the encrypted key file is locked, or before its passphrase is chosen, says
+  "Unlock your keys with their passphrase first.", as chat does. The route that forwards an app's
+  requests to its runner let the error through as a bare 500, which the page could only call "not
+  JSON", whatever the provider; a keychain that refuses is said so there too.
 
 ## [0.1.0] — 2026-11-02
 
