@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "weekly-digest",
+  "description": "Writes a small bookshop's weekly newsletter from the week's notes, with a crew app.",
+  "extensions": {
+    "org.sigrix": {
+      "assistant": "assistant.json"
+    }
+  }
+}
