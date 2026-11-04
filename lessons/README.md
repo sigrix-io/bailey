@@ -2,15 +2,19 @@
 
 Short videos that show a person how to use Bailey, recorded from the app itself. A lesson is a
 storyboard written as code: a table of everything it says, and its steps, each a highlight, a
-click or a caption. Recording one starts Bailey, drives its page in Chromium, and writes:
+click or a caption. Recording one starts Bailey, drives its page in Chromium, and writes a folder
+of the lesson's own, `lessons/out/<lesson>/`:
 
 | File | What it is |
 | --- | --- |
-| `<lesson>.mp4` | the video: 1080p, 30 fps, H.264 and AAC, with its chapters as markers desktop players show |
-| `<lesson>.jpg` | its poster, which is the title card |
-| `<lesson>.vtt` | its captions: every line spoken, including those over a card |
-| `<lesson>.chapters.vtt` | its chapters, for a web page's video player |
-| `<lesson>.chapters.txt` | its chapters as lines to paste into a YouTube description |
+| `video.mp4` | the video: 1080p, 30 fps, H.264 and AAC, with its chapters as markers desktop players show |
+| `cover.jpg` | its poster, which is the title card |
+| `captions.vtt` | its captions: every line spoken, including those over a card |
+| `chapters.vtt` | its chapters, for a web page's video player |
+| `chapters.txt` | its chapters as lines to paste into a YouTube description |
+| `lesson.json` | its page on sigrix.io, from `pages.py` |
+
+That folder is a lesson bundle, which Sigrix's Learn console imports in one step (below).
 
 Because a lesson is code, it is recorded again in a few minutes when the app changes, and a step
 the app no longer has stops the recording with an error rather than letting a stale video out.
@@ -38,7 +42,7 @@ playwright install chromium
 python lessons/first_solution.py
 ```
 
-and the same for any other lesson's file. Each takes three or four minutes, and writes into `lessons/out/`, which git ignores. `--out` names
+and the same for any other lesson's file. Each takes three or four minutes, and writes its folder into `lessons/out/`, which git ignores. `--out` names
 another folder, `--chromium` (or `LESSONS_CHROMIUM`) a Chromium already installed, and
 `--keep-work` keeps the frames, the audio and Bailey's data folder for a look afterwards.
 
@@ -76,6 +80,8 @@ too: the same in every recording, and never the recorder's own temporary folder.
 
 Copy the lesson nearest to the new one. Its parts:
 
+- `page`, its page on sigrix.io, which `pages.py` holds: the folder it records into and the
+  address, title and text an import gives it (Publishing on sigrix.io, above).
 - `NARRATION`, everything it says. `text` is the caption; `spoken`, when given, is what the voice
   says instead, for a word it would misread (it spells out "ZIP", so the line says "zip"). To
   hear a line and see how it is read, `python lessons/narrate.py "the line"`.
@@ -109,7 +115,25 @@ into the one before it (`timeline.py`, held by `tests/test_lessons.py`).
   second after its caption appears, adds a soft click for each click, and ducks the music under
   the voice. The whole is normalised to -16 LUFS, its peaks aimed 2 dB under full scale.
 
-## Publishing one
+## Publishing on sigrix.io
+
+```sh
+python lessons/pack.py
+```
+
+zips every recorded lesson with its page and the learning path that lists them,
+`lessons/out/bailey-lessons.zip`, and stops, naming the file, if a lesson has not been recorded
+whole. On sigrix.io, Moderator > Learn > **Import lessons** takes that zip: it checks each lesson
+as the Learn editor would, shows what importing them will do, and saves them, as drafts or
+published. A lesson already on the site is updated in place, matched by its slug, so a lesson
+recorded again, or a summary corrected in `pages.py`, reaches the site with a pack and an import.
+
+A lesson's page is in `pages.py`: its folder, its address (`slug`), title, summary, body,
+category and tags, and the order of the learning path. The format is Sigrix's
+(`src/services/learn_import.py` there) and `bundle.py` writes it. A new lesson adds its page there,
+names it in its file (`Lesson(page=pages.THE_PAGE, ...)`), and joins `pages.PATH`.
+
+## Publishing one elsewhere
 
 The captions are drawn into the picture, and they are in `<lesson>.vtt` as well: a player that
 turns the `.vtt` on shows each line twice. The `.vtt` is for a transcript, for a translation,

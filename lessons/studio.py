@@ -5,13 +5,15 @@ each a highlight, a click, a caption. The studio starts Bailey on a scripted mod
 (``scripted_bailey.py``), opens it in Chromium at 1280x720 CSS pixels and a device scale
 of 1.5, so frames are 1920x1080 and text is sharp, draws the cursor, spotlight, captions
 and cards over the page (``overlay.js``), and captures every painted frame over CDP. It
-writes, beside each other in the output folder:
+writes a folder of the lesson's own in the output folder, named by its page (``pages.py``), which
+is the bundle Sigrix's Learn console imports (``bundle.py``):
 
-- ``<slug>.mp4``: H.264 and AAC at 1080p and 30 fps, with its chapters as markers;
-- ``<slug>.jpg``: the poster, which is the title card;
-- ``<slug>.vtt``: the captions, every line spoken;
-- ``<slug>.chapters.vtt`` and ``<slug>.chapters.txt``: the chapters, for a web page's player
-  and for a YouTube description.
+- ``video.mp4``: H.264 and AAC at 1080p and 30 fps, with its chapters as markers;
+- ``cover.jpg``: the poster, which is the title card;
+- ``captions.vtt``: the captions, every line spoken;
+- ``chapters.vtt`` and ``chapters.txt``: the chapters, for a web page's player and for a
+  YouTube description;
+- ``lesson.json``: its page on sigrix.io.
 
 Every line is spoken before the recording starts (``narrate.py``), so each caption is held
 exactly as long as its voice, and the sound is mixed in at the end (``mixdown.py``).
@@ -41,6 +43,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Literal
 
+import bundle
 import mixdown
 import narrate
 import timeline
@@ -60,7 +63,8 @@ PASSPHRASE = "a passphrase for the recording"  # noqa: S105 -- made up, for a ke
 
 @dataclass(frozen=True)
 class Lesson:
-    slug: str
+    #: Its page on sigrix.io (``pages.py``), which names the folder it is recorded into.
+    page: bundle.Page
     #: The title card, which is also the poster: ``kicker``, ``title`` and ``sub``.
     title: Mapping[str, str]
     #: Every line, by key: ``text`` is the caption, and ``spoken`` what the voice says instead, if anything.
@@ -80,6 +84,12 @@ class Lesson:
     #: For a lesson that runs an app: its environment is a stand-in made in seconds, and each of
     #: its crew's tasks takes this many seconds (``scripted_bailey.py``).
     app_task_seconds: float | None = None
+
+    @property
+    def slug(self) -> str:
+        """The folder the lesson is recorded into, and its name for a YouTube upload."""
+
+        return self.page.folder
 
 
 class Bailey:
@@ -367,7 +377,8 @@ async def provider_chosen(s: Studio) -> None:
 async def _capture(
     lesson: Lesson, out: Path, work: Path, chromium: str | None
 ) -> tuple[Studio, list[tuple[Path, float]], float]:
-    """Record the lesson's frames; the studio's log of it, each frame with when it was painted, and when it stopped."""
+    """Record the lesson's frames into its folder ``out``; the studio's log of it, each frame with when it
+    was painted, and when it stopped."""
 
     clips = narrate.speak(lesson.narration, narrate.Voice(lesson.voice)) if lesson.narration else {}
     frames_folder = work / "frames"
@@ -415,7 +426,7 @@ async def _capture(
                 cdp = await context.new_cdp_session(page)
                 # The poster is the title card, taken over CDP as the frames are, at 1920x1080.
                 poster = await cdp.send("Page.captureScreenshot", {"format": "jpeg", "quality": 92})
-                (out / f"{lesson.slug}.jpg").write_bytes(base64.b64decode(poster["data"]))
+                (out / bundle.COVER).write_bytes(base64.b64decode(poster["data"]))
 
                 def painted(frame: dict[str, Any]) -> None:
                     file = frames_folder / f"f{len(frames):06d}.jpg"
@@ -456,11 +467,12 @@ async def _capture(
 
 
 async def record(lesson: Lesson, out: Path, *, chromium: str | None = None, keep_work: bool = False) -> dict[str, Any]:
-    """Record ``lesson`` into ``out``, and say what was made."""
+    """Record ``lesson`` into a folder of its own in ``out``, its bundle, and say what was made."""
 
-    out.mkdir(parents=True, exist_ok=True)
+    folder = out / lesson.slug
+    folder.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix=f"{lesson.slug}-", dir=out))
-    studio, frames, stopped = await _capture(lesson, out, work, chromium)
+    studio, frames, stopped = await _capture(lesson, folder, work, chromium)
     if not frames:
         raise RuntimeError("The browser painted no frames, so there is nothing to encode.")
 
@@ -473,7 +485,7 @@ async def record(lesson: Lesson, out: Path, *, chromium: str | None = None, keep
         concat += [f"file '{file}'", f"duration {after - at:.3f}"]
     concat.append(f"file '{frames[-1][0]}'")
     (work / "frames.txt").write_text("\n".join(concat) + "\n", encoding="utf-8")
-    mp4 = out / f"{lesson.slug}.mp4"
+    mp4 = folder / bundle.VIDEO
     picture = work / "picture.mp4" if lesson.narration else mp4
     mixdown.ffmpeg(
         *("-f", "concat", "-safe", "0", "-i", str(work / "frames.txt"), "-fps_mode", "cfr", "-r", "30"),
@@ -493,12 +505,12 @@ async def record(lesson: Lesson, out: Path, *, chromium: str | None = None, keep
         for caption in studio.captions
     ]
     captions += [timeline.Cue(cue.start - offset, cue.end - offset, cue.text) for cue in studio.spoken_only]
-    (out / f"{lesson.slug}.vtt").write_text(timeline.webvtt(captions), encoding="utf-8")
+    (folder / bundle.CAPTIONS).write_text(timeline.webvtt(captions), encoding="utf-8")
 
     parts = timeline.chapters([timeline.Mark(mark.start - offset, mark.title) for mark in studio.marks], seconds)
     if parts:
-        (out / f"{lesson.slug}.chapters.vtt").write_text(timeline.webvtt(parts), encoding="utf-8")
-        (out / f"{lesson.slug}.chapters.txt").write_text(timeline.youtube_chapters(parts), encoding="utf-8")
+        (folder / bundle.CHAPTERS).write_text(timeline.webvtt(parts), encoding="utf-8")
+        (folder / bundle.YOUTUBE_CHAPTERS).write_text(timeline.youtube_chapters(parts), encoding="utf-8")
         metadata = work / "chapters.ffmeta"
         metadata.write_text(timeline.ffmetadata(f"{lesson.title['kicker']}: {lesson.title['title']}", parts), "utf-8")
         marked = work / "marked.mp4"
@@ -508,9 +520,11 @@ async def record(lesson: Lesson, out: Path, *, chromium: str | None = None, keep
             *("-c", "copy", *language, "-movflags", "+faststart", str(marked)),
         )
         marked.replace(mp4)
+    bundle.write_page(lesson.page, folder)
     if not keep_work:
         shutil.rmtree(work)
     return {
+        "bundle": str(folder),
         "video": str(mp4),
         "seconds": round(seconds, 1),
         "frames": len(frames),
