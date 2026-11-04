@@ -23,6 +23,14 @@ A tool call names its MCP server (``server``), and one the person was asked abou
 carries ``asked``. A result's ``outcome`` is there when it is not a success: ``denied``
 when the person said no. A call that asked and has no result yet is a question the run
 is waiting on (:func:`pending`), so it survives a reload and a restart.
+
+A ``retry`` asks the model to try again, and its ``content`` says why. One that answers a
+call (its arguments were wrong, or its tool asked for another try) names the call
+(``id``) and its ``tool``, and goes back as that call's result, marked to be made again.
+One that answers no call, as after a reply with nothing in it, has no ``tool``, and its
+``id`` names nothing; it goes back as feedback on that reply. PydanticAI 2.63 split its
+retry part in two, one for each, and both are stored as the one was, so a conversation
+stored before the split still loads.
 """
 
 from __future__ import annotations
@@ -89,7 +97,7 @@ def to_records(
     from pydantic_ai.messages import (
         ModelRequest,
         ModelResponse,
-        RetryPromptPart,
+        RetryFeedbackPart,
         TextPart,
         ToolCallPart,
         ToolReturnPart,
@@ -103,6 +111,16 @@ def to_records(
             for request_part in message.parts:
                 if isinstance(request_part, UserPromptPart):
                     parts.append({"kind": "text", "text": _content_text(request_part.content)})
+                elif isinstance(request_part, ToolReturnPart) and request_part.outcome == "retried":
+                    # Its words alone: PydanticAI marks a retry as an error each time it sends one.
+                    parts.append(
+                        {
+                            "kind": "retry",
+                            "id": request_part.tool_call_id,
+                            "tool": request_part.tool_name,
+                            "content": request_part.model_response_str(wrap_if_error=False),
+                        }
+                    )
                 elif isinstance(request_part, ToolReturnPart):
                     result: dict[str, Any] = {
                         "kind": "tool_result",
@@ -113,14 +131,10 @@ def to_records(
                     if request_part.outcome != "success":
                         result["outcome"] = request_part.outcome
                     parts.append(result)
-                elif isinstance(request_part, RetryPromptPart):
+                elif isinstance(request_part, RetryFeedbackPart):
+                    # Its words alone too: PydanticAI frames feedback each time it sends it.
                     parts.append(
-                        {
-                            "kind": "retry",
-                            "id": request_part.tool_call_id,
-                            "tool": request_part.tool_name or "",
-                            "content": request_part.model_response(),
-                        }
+                        {"kind": "retry", "id": "", "tool": "", "content": _content_text(request_part.content)}
                     )
             if parts:
                 records.append({"format": FORMAT, "role": "user", "at": _now(), "parts": parts})
@@ -169,7 +183,8 @@ def to_history(records: Sequence[dict[str, Any]]) -> list[ModelMessage]:
         ModelRequestPart,
         ModelResponse,
         ModelResponsePart,
-        RetryPromptPart,
+        RetryFeedbackPart,
+        RetryInfo,
         TextPart,
         ToolCallPart,
         ToolReturnPart,
@@ -197,11 +212,20 @@ def to_history(records: Sequence[dict[str, Any]]) -> list[ModelMessage]:
                             outcome=outcome if outcome in OUTCOMES else "success",
                         )
                     )
-                elif kind == "retry":
+                elif kind == "retry" and part.get("tool"):
                     request_parts.append(
-                        RetryPromptPart(
-                            content=part.get("content", ""), tool_name=part.get("tool") or None, tool_call_id=part["id"]
+                        ToolReturnPart(
+                            tool_name=part["tool"],
+                            content=part.get("content", ""),
+                            tool_call_id=part["id"],
+                            outcome="retried",
                         )
+                    )
+                elif kind == "retry":
+                    # The format keeps no cause, and model_retry is the one PydanticAI gives a stored
+                    # retry's words: they reach the model fenced, as the application's, not the person's.
+                    request_parts.append(
+                        RetryFeedbackPart(content=str(part.get("content", "")), retry=RetryInfo(cause="model_retry"))
                     )
             if not request_parts:
                 continue
