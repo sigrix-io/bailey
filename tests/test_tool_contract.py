@@ -230,6 +230,22 @@ def test_a_tool_the_person_allowed_always_runs_without_asking(
     assert mailbox.drafted() == before + 1
 
 
+@pytest.mark.parametrize(("provider", "path", "model"), PROVIDERS, ids=IDS)
+def test_a_tool_that_fails_is_given_another_try_and_the_page_is_told_so(
+    mailbox: Mailbox, tmp_path: Path, provider: str, path: str, model: str
+) -> None:
+    # Its drafts file is a folder, so create_draft fails in the server. PydanticAI gives the model
+    # another try at a tool's error, and the page's word for that is "retry" (toolWords in app.js):
+    # PydanticAI's own, "retried", is not one the page knows, and would show the call still running.
+    broken = Mailbox(mailbox.loop, mailbox.host, tmp_path, mailbox.base)
+    assistant = replace(SHOP, name="shop-helper-without-drafts")
+    connection = mailbox.connection(provider, path, model)
+    events = broken.turn(connection, [], REPLY, assistant=assistant, granted={("mailbox", "create_draft")})
+    assert _done(events)["asked"] == []
+    assert _outcomes(events) == {"search_threads": "success", "create_draft": "retry"}
+    assert "The draft tool said:" in _text(events), "the model was given the error, and answered"
+
+
 def test_every_tool_of_a_server_with_no_declaration_asks(mailbox: Mailbox) -> None:
     undeclared = replace(SHOP, name="undeclared", servers=(replace(SERVER, tools=None, write_tools=()),))
     events = mailbox.turn(mailbox.connection(*PROVIDERS[0]), [], REPLY, assistant=undeclared)

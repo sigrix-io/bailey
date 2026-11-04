@@ -60,7 +60,6 @@ from pydantic_ai.messages import (
     PartStartEvent,
     TextPart,
     TextPartDelta,
-    ToolReturnPart,
 )
 from pydantic_ai.models import Model
 from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
@@ -435,8 +434,10 @@ async def answer(
                         yield {"type": "search", "query": str(event.part.args_as_dict().get("query", ""))}
                     else:
                         yield {"type": "tool", **_call(event.part, servers)}
-                elif isinstance(event, FunctionToolResultEvent) and event.part.tool_name not in (*OWN_TOOLS, None):
-                    outcome = event.part.outcome if isinstance(event.part, ToolReturnPart) else "retry"
+                elif isinstance(event, FunctionToolResultEvent) and event.part.tool_name not in OWN_TOOLS:
+                    # A call the model is to make again, as after a tool server's error, is a "retry"
+                    # to the page (toolWords in app.js), and never PydanticAI's own word, "retried".
+                    outcome = "retry" if event.part.outcome == "retried" else event.part.outcome
                     yield {"type": "tool_result", "id": event.part.tool_call_id, "outcome": outcome}
                 elif isinstance(event, AgentRunResultEvent):
                     output = event.result.output
