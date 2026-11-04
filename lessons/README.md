@@ -22,8 +22,9 @@ the app no longer has stops the recording with an error rather than letting a st
 | `first_solution.py`, 1: your first solution | where things are; choosing an AI and saving its key; installing a solution from a file, and what the install screen says; giving it documents; a cited answer and what it cost |
 | `tools_that_ask.py`, 2: tools that ask before they act | a solution's tool server and the key it needs; a tool that reads and runs, and one that changes something and asks; allowing once and always; taking an "always" back in Settings |
 | `apps_that_run_a_crew.py`, 3: apps that run a crew | a solution's app on the install screen, and the key it runs on; installing its libraries once; the form it draws, a run of its crew step by step, and what the run used |
+| `check_a_solution.py`, 4: check a solution | `bailey doctor` and what it says of a machine; `bailey check` on a solution whose cases all pass, and on a draft whose examples fail, each with its reason; what it costs; its exit status for a script or a CI job |
 
-Each lesson picks up where the one before left off: lessons 2 and 3 choose the provider before
+Each lesson picks up where the one before left off: lessons 2 to 4 choose the provider before
 the recording starts (`provider_chosen`, in `studio.py`), rather than showing it again.
 
 ## Recording one
@@ -60,10 +61,16 @@ that file names and no others. Its drafts go nowhere. Lesson 3's app runs in a s
 environment: rather than the 250 MB of CrewAI and its libraries, `scripted_bailey.py` makes it in
 seconds as `tests/app_environments.py` does, with the tests' stand-in CrewAI and the pinned
 runner. The runner and the run page are real, and the crew's answers are scripted like the
-model's. The keys a lesson types are made up, and
-Bailey keeps it in an encrypted file in a data folder of the recording's own (`BAILEY_KEYS=file`),
+model's. Lesson 4 films a terminal: a page the studio draws (`terminal.html`), where each command
+is typed and then really run, in a shell of its own, with its output shown as it prints it.
+There `bailey` is Bailey's own command line with each provider's address the scripted model's
+(`scripted_bailey.py --cli`), so `bailey check`'s cases, verdicts and report are its own, and
+only the answers are scripted. The keys a lesson types are made up, and
+Bailey keeps them in an encrypted file in a data folder of the recording's own (`BAILEY_KEYS=file`),
 so a recording never touches the keychain of the computer it runs on: that is why the page says
-"Saved in an encrypted file, Bailey/keys.enc."
+"Saved in an encrypted file, Bailey/keys.enc." Bailey names its data folder in full, so the
+recording names the key file from the work folder, and lesson 4's `bailey doctor` the data folder
+too: the same in every recording, and never the recorder's own temporary folder.
 
 ## Writing a lesson
 
@@ -77,9 +84,12 @@ Copy the lesson nearest to the new one. Its parts:
   (`scripted_bailey.py` says how a reply cites a passage). A call to a tool the app did not
   offer fails the recording, as a provider refuses it.
 - `setup`, steps before the recording starts, on the page itself; `commands`, stand-in
-  programs on Bailey's `PATH`, such as a solution's tool server; and `app_task_seconds`, for a
-  lesson that runs an app: its environment is a stand-in, and each of its crew's tasks takes
-  that long, so the steps arrive at a pace a viewer can follow.
+  programs on Bailey's and the terminal's `PATH`, each a name and the script (with its first
+  arguments) it runs, such as a solution's tool server or `bailey` itself; and
+  `app_task_seconds`, for a lesson that runs an app: its environment is a stand-in, and each of
+  its crew's tasks takes that long, so the steps arrive at a pace a viewer can follow.
+- For a lesson in the terminal, `terminal(title, where)` leaves Bailey's page for it, and
+  `shell(command)` types a command and runs it, returning its exit status; `clear` clears it.
 - `run`, the steps, through the `Studio` (`studio.py`): `say(key)` shows a caption and speaks
   it, holding until the voice ends; `voice(key)` speaks over a card; `spot(locator)` dims the
   page around one part of it; `click`, `type`, `chapter`, `card`, `quiet` and `sleep`.
