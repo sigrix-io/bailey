@@ -149,9 +149,19 @@ def test_every_page_says_what_in_its_lesson_is_scripted(pages: ModuleType) -> No
 
 
 def test_a_youtube_link_is_written_once_a_page_has_one(pages: ModuleType, bundle: ModuleType) -> None:
-    assert "youtube_url" not in bundle.page_json(pages.FIRST_SOLUTION), "left out, so an import keeps the page's link"
+    not_yet = dataclasses.replace(pages.FIRST_SOLUTION, youtube_url="")
+    assert "youtube_url" not in bundle.page_json(not_yet), "left out, so an import keeps the page's link"
     uploaded = dataclasses.replace(pages.FIRST_SOLUTION, youtube_url="https://www.youtube.com/watch?v=abcdefghijk")
     assert bundle.page_json(uploaded)["youtube_url"] == "https://www.youtube.com/watch?v=abcdefghijk"
+
+
+def test_every_lesson_names_its_own_video_on_youtube_as_sigrix_stores_it(pages: ModuleType) -> None:
+    """Sigrix's import reads a ``youtu.be`` link too, and stores it as the watch address it links the page to; each
+    lesson is a video of its own, so no two pages name one."""
+
+    links = [page.youtube_url for page in pages.PATH.lessons]
+    assert all(re.fullmatch(r"https://www\.youtube\.com/watch\?v=[A-Za-z0-9_-]{11}", link) for link in links), links
+    assert len(set(links)) == len(links)
 
 
 def test_the_readme_links_each_lesson_in_the_paths_order(pages: ModuleType) -> None:
@@ -172,6 +182,7 @@ def test_a_page_is_written_as_the_import_reads_it(tmp_path: Path, pages: ModuleT
         "category": "tutorials",
         "tags": ["bailey", "video"],
         "body_markdown": pages.FIRST_SOLUTION.body,
+        "youtube_url": "https://www.youtube.com/watch?v=OWB-Dw8namc",
     }
 
 
