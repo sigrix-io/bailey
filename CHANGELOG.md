@@ -32,8 +32,8 @@ described in `VERSIONING.md`.
   recorded lesson's YouTube title, description and tags from its page, with its chapters and a
   link back to its page, held to what YouTube refuses. A lesson's page can name its YouTube video
   (`youtube_url`), and each page now says what in its lesson is scripted or a stand-in.
-- The four lessons are on YouTube, in the playlist "Bailey: getting started", and each page names
-  its video, so the next pack and import link the lesson's page on sigrix.io to it.
+- The four lessons are on YouTube, and each page names its video, so the next pack and import
+  link the lesson's page on sigrix.io to it.
 
 ### Changed
 
