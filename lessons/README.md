@@ -131,7 +131,28 @@ recorded again, or a summary corrected in `pages.py`, reaches the site with a pa
 A lesson's page is in `pages.py`: its folder, its address (`slug`), title, summary, body,
 category and tags, and the order of the learning path. The format is Sigrix's
 (`src/services/learn_import.py` there) and `bundle.py` writes it. A new lesson adds its page there,
-names it in its file (`Lesson(page=pages.THE_PAGE, ...)`), and joins `pages.PATH`.
+names it in its file (`Lesson(page=pages.THE_PAGE, ...)`), and joins `pages.PATH`. Every page
+carries the tag `bailey`, which Learn lists the lessons by (`/learn/tag/bailey`), and so does
+Bailey's own page on sigrix.io, and says what in its lesson is scripted or a stand-in. Once a lesson
+is on YouTube, its page's `youtube_url` is the video's address: the next pack and import link the
+page to it.
+
+## Publishing on YouTube
+
+```sh
+python lessons/youtube.py --link bailey-lesson-1-your-first-solution=https://sigrix.io/go/abc123
+```
+
+writes `youtube.txt` into each recorded lesson's folder: the title, the description and the tags
+YouTube Studio asks for, from the lesson's page. The description opens with the summary and a link to
+the lesson's page on sigrix.io: its address, or the tracked link the Learn console's Content tab
+makes for the video's post (`--link`, once per lesson), so the visits YouTube sends are counted as
+YouTube's. Then come the chapters from `chapters.txt`, which YouTube turns into the video's chapters,
+the line saying its answers are scripted, and where to get Bailey. Upload `video.mp4` with
+`cover.jpg` as its thumbnail and `captions.vtt` as its subtitles. What YouTube would refuse (`<` or `>`, a
+title over 100 characters, a description over 5,000 bytes) or show without chapters (a first one not
+at 0:00, fewer than three, one under ten seconds) stops the command, naming the lesson, before it
+writes anything.
 
 ## Publishing one elsewhere
 
