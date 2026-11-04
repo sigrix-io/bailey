@@ -17,6 +17,10 @@ described in `VERSIONING.md`.
   tool that reads and runs, a write that asks first, allowing once and always, and taking an
   "always" back in Settings. Its solution is `lessons/solutions/harbour-mail-desk`, with a
   stand-in server, and a lesson's scripted model now makes tool calls.
+- Lesson 3, apps that run a crew: a solution's app on the install screen, installing its
+  libraries once, and a run of its crew from the form it draws. Its solution is
+  `lessons/solutions/harbour-weekly-digest`; the recording makes the app's environment a
+  stand-in, as the tests do, rather than downloading 250 MB.
 
 ### Fixed
 

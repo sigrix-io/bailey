@@ -72,24 +72,29 @@ class Lesson:
     #: Stand-in programs on Bailey's PATH, each a name and the Python script it runs, such as
     #: the tool server a solution's mcp.json starts (``harbour_mail.py``).
     commands: Mapping[str, Path] = field(default_factory=dict)
+    #: For a lesson that runs an app: its environment is a stand-in made in seconds, and each of
+    #: its crew's tasks takes this many seconds (``scripted_bailey.py``).
+    app_task_seconds: float | None = None
 
 
 class Bailey:
     """Bailey on a scripted model, in a data folder of its own, and the address it printed."""
 
-    def __init__(self, work: Path, replies: Sequence[Mapping[str, Any]], commands: Mapping[str, Path]) -> None:
+    def __init__(self, work: Path, lesson: Lesson) -> None:
         answers = work / "replies.json"
-        answers.write_text(json.dumps(list(replies)), encoding="utf-8")
+        answers.write_text(json.dumps(list(lesson.replies)), encoding="utf-8")
         # Nothing it reaches is past this computer, so no proxy applies. The data folder is named
         # relative to the work folder, so the page names the key file as "Bailey/keys.enc".
         env = {key: value for key, value in os.environ.items() if not key.lower().endswith("_proxy")}
         env |= {"BAILEY_HOME": "Bailey", "BAILEY_KEYS": "file", "BAILEY_PASSPHRASE": PASSPHRASE}
-        if commands:
+        if lesson.app_task_seconds is not None:
+            env["LESSON_APP_TASK_SECONDS"] = str(lesson.app_task_seconds)
+        if lesson.commands:
             # Each stand-in is a small shell script ahead of everything else on the PATH, which a
             # tool server Bailey starts inherits, as it would a command the person had installed.
             folder = work / "bin"
             folder.mkdir()
-            for name, script in commands.items():
+            for name, script in lesson.commands.items():
                 launcher = folder / name
                 launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
                 launcher.chmod(0o755)
@@ -269,6 +274,20 @@ class Studio:
             await locator.press_sequentially(line, delay=delay_ms)
 
 
+async def provider_chosen(s: Studio) -> None:
+    """A lesson's setup for where lesson 1 left off: Anthropic chosen, a made-up key saved, on Assistants."""
+
+    page = s.page
+    await page.locator('.nav-item[data-view="settings"]').click()
+    await page.locator("#provider-choices label", has_text="Anthropic").click()
+    await page.locator("#provider-form button[type=submit]").click()
+    await page.locator("#key-card").wait_for(state="visible")
+    await page.locator("#key").fill("a-made-up-key-for-the-recording")
+    await page.locator("#key-form button[type=submit]").click()
+    await page.wait_for_function("() => document.querySelector('#key-status').textContent.trim().length > 0")
+    await page.locator('.nav-item[data-view="assistants"]').click()
+
+
 async def _capture(
     lesson: Lesson, out: Path, work: Path, chromium: str | None
 ) -> tuple[Studio, list[tuple[Path, float]], float]:
@@ -279,7 +298,7 @@ async def _capture(
     frames_folder.mkdir()
     frames: list[tuple[Path, float]] = []
     acks: set[asyncio.Future[Any]] = set()
-    bailey = Bailey(work, lesson.replies, lesson.commands)
+    bailey = Bailey(work, lesson)
     try:
         async with async_playwright() as playwright:
             # The scale is the browser's own, not an emulated one: only then are screencast
