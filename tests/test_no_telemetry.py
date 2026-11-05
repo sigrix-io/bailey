@@ -305,6 +305,11 @@ def test_an_app_and_its_runner_connect_to_nothing_but_this_computer_and_the_prov
 #: A process that loads onnxruntime and waits, as a Bailey does once it has converted a document.
 _LOAD_ONNXRUNTIME = "import time, onnxruntime; time.sleep(120)"
 
+#: What starting Python and loading onnxruntime need from the environment, and nothing more. Its
+#: telemetry keeps quiet where it finds a CI's or a cloud's marker (CI, GITHUB_ACTIONS,
+#: KUBERNETES_SERVICE_HOST and others its library lists), which a person's computer has none of.
+_A_PERSONS_COMPUTER = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "LD_LIBRARY_PATH", "SSL_CERT_FILE", "SSL_CERT_DIR")
+
 
 @pytest.mark.skipif(
     sys.platform != "linux", reason="onnxruntime's 1DS client is in its Linux build, where it was measured"
@@ -313,9 +318,10 @@ def test_onnxruntime_sends_its_telemetry_only_when_not_switched_off() -> None:
     """onnxruntime 1.31 tries to reach Microsoft's telemetry collector from native code, through the
     proxy its environment names, about ten seconds after it loads. Two processes load it at once,
     one with Bailey's switch: once the other has asked its proxy, the switched one has asked nothing.
-    An onnxruntime bump that renames its switch fails here."""
+    Both run as on a person's computer, since in CI it would stay quiet either way. An onnxruntime
+    bump that renames its switch fails here."""
 
-    plain = {name: value for name, value in os.environ.items() if name not in NATIVE_TELEMETRY_OFF}
+    plain = {name: os.environ[name] for name in _A_PERSONS_COMPUTER if name in os.environ}
     on, off = RecordingProxy(), RecordingProxy()
     quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
     processes = [
