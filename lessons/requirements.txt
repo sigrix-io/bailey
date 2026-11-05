@@ -3,6 +3,7 @@
 #   pip install -e ".[dev]" -r lessons/requirements.txt
 #   playwright install chromium
 #
-# and ffmpeg on the PATH. Pinned at the versions the lessons were last recorded with.
-playwright==1.63.0
-kokoro-onnx==0.6.1
+# and ffmpeg on the PATH. The recorder is Pageant (sigrix-io/pageant), with its record extra:
+# Playwright and the voice, at the versions it pins. Pinned at the commit these lessons were
+# last recorded with, until Pageant's first release is on PyPI.
+pageant[record] @ git+https://github.com/sigrix-io/pageant.git@25ec7abfdd633dd9be380acfa26265222a6a5d47

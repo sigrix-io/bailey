@@ -27,6 +27,11 @@ than 250 MB from PyPI, and each of its crew's tasks takes that many seconds.
 is the ``bailey`` command itself, ``bailey check`` included, on the scripted model the
 recording started (``LESSON_MODEL_URL``): a lesson that films a terminal puts it on the
 terminal's PATH as ``bailey``.
+
+A lesson names this script as the app it films through :func:`app`, Pageant's start hook
+(sigrix-io/pageant's ``pageant.apps``): Pageant starts it in the recording's work folder and
+opens the address it prints. :func:`provider_chosen` is the setup a lesson after the first
+starts from, and :func:`mark` is Bailey's own mark for the title cards.
 """
 
 from __future__ import annotations
@@ -42,7 +47,12 @@ import sysconfig
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from pageant.apps import Command
+
+if TYPE_CHECKING:
+    from pageant.studio import Mark, Studio
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(REPO / "tests"), str(REPO / "src")]
@@ -50,6 +60,14 @@ sys.path[:0] = [str(REPO / "tests"), str(REPO / "src")]
 import emulated_providers as emulator  # noqa: E402
 
 from bailey import server  # noqa: E402
+
+#: The page names Bailey's data folder relative to the recording's work folder, where Pageant
+#: starts this script, so it reads "Bailey/keys.enc" rather than the recorder's own folders.
+DATA_FOLDER = "Bailey"
+#: The recording's own key file, in its own data folder, holds only a made-up key.
+PASSPHRASE = "a passphrase for the recording"  # noqa: S105 -- made up, for a key file thrown away
+#: Bailey's mark, which its page serves at ``/static/icon.svg``.
+ICON = REPO / "src" / "bailey" / "web" / "icon.svg"
 
 #: Slower than the tests' stream, so a viewer sees the answer arrive.
 CHUNK_DELAY = 0.045
@@ -179,6 +197,51 @@ def keys_named_from(here: Path, open_keys: Callable[..., Any]) -> Callable[..., 
         return open_keys(named_from(here, folder), **kwargs)
 
     return opened
+
+
+def app(replies: Sequence[Mapping[str, Any]] = (), *, app_task_seconds: float | None = None) -> Command:
+    """The app a lesson films: this script, so Bailey on a scripted model, in a data folder of its own.
+
+    ``replies`` are the model's scripted answers, written into the work folder for it to read.
+    With ``app_task_seconds``, an app's environment is a stand-in and each of its crew's tasks
+    takes that long. The scripted model's address goes into the filmed terminal's environment,
+    for ``--cli``. Every lesson starts on Chat, which the page opens once its settings have
+    loaded; its menu shows a moment earlier, and a click then would open another view first.
+    """
+
+    env = {"BAILEY_HOME": DATA_FOLDER, "BAILEY_KEYS": "file", "BAILEY_PASSPHRASE": PASSPHRASE}
+    if app_task_seconds is not None:
+        env["LESSON_APP_TASK_SECONDS"] = str(app_task_seconds)
+    return Command(
+        argv=[sys.executable, Path(__file__).resolve(), "replies.json"],
+        address=r"Open it at (http://127\.0\.0\.1:\d+/#token=\S+)",
+        env=env,
+        files={"replies.json": json.dumps(list(replies))},
+        exports={"LESSON_MODEL_URL": r"Scripted model at (\S+)"},
+        ready='[data-panel="chat"]',
+    )
+
+
+def mark() -> Mark:
+    """Bailey's own mark on a lesson's title cards, at the address its page serves it."""
+
+    from pageant.studio import Mark  # the record extra's; a lesson file has it loaded already
+
+    return Mark("/static/icon.svg", ICON)
+
+
+async def provider_chosen(s: Studio) -> None:
+    """A lesson's setup for where lesson 1 left off: Anthropic chosen, a made-up key saved, on Assistants."""
+
+    page = s.page
+    await page.locator('.nav-item[data-view="settings"]').click()
+    await page.locator("#provider-choices label", has_text="Anthropic").click()
+    await page.locator("#provider-form button[type=submit]").click()
+    await page.locator("#key-card").wait_for(state="visible")
+    await page.locator("#key").fill("a-made-up-key-for-the-recording")
+    await page.locator("#key-form button[type=submit]").click()
+    await page.wait_for_function("() => document.querySelector('#key-status').textContent.trim().length > 0")
+    await page.locator('.nav-item[data-view="assistants"]').click()
 
 
 def main() -> int:
