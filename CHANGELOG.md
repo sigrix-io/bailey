@@ -6,6 +6,11 @@ described in `VERSIONING.md`.
 
 ## [Unreleased]
 
+### Added
+
+- The four lessons are on YouTube, and each page names its video, so the next pack and import
+  link the lesson's page on sigrix.io to it.
+
 ## [0.1.1] — 2026-11-05
 
 A fix release. Bailey sends no telemetry again, onnxruntime's included. An app opens from a
@@ -38,8 +43,6 @@ a server that needs no key before any passphrase is chosen.
   recorded lesson's YouTube title, description and tags from its page, with its chapters and a
   link back to its page, held to what YouTube refuses. A lesson's page can name its YouTube video
   (`youtube_url`), and each page now says what in its lesson is scripted or a stand-in.
-- The four lessons are on YouTube, and each page names its video, so the next pack and import
-  link the lesson's page on sigrix.io to it.
 
 ### Changed
 
