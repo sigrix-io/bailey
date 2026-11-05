@@ -260,7 +260,9 @@ def _run(tmp_path: Path, mode: str) -> list[dict[str, Any]]:
 def test_the_recorder_catches_a_planted_outbound_connection(tmp_path: Path) -> None:
     caught = outbound(_run(tmp_path, "canary"))
     assert {"event": "socket.connect", "host": "192.0.2.1", "port": 9} in caught
-    assert {"event": "proxy", "request": "CONNECT 192.0.2.2:443 HTTP/1.1", "host": "192.0.2.2"} in caught
+    # Its request line ends in HTTP/1.0 from Python 3.11's urllib and HTTP/1.1 from later ones.
+    proxied = [event["request"].rsplit(" ", 1)[0] for event in caught if event["event"] == "proxy"]
+    assert proxied == ["CONNECT 192.0.2.2:443"], caught
 
 
 def test_the_app_connects_to_nothing_but_this_computer(tmp_path: Path) -> None:
