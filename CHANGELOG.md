@@ -6,6 +6,12 @@ described in `VERSIONING.md`.
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-11-05
+
+A fix release. Bailey sends no telemetry again, onnxruntime's included. An app opens from a
+relative `BAILEY_HOME`, asks for a locked key file's passphrase rather than failing, and runs on
+a server that needs no key before any passphrase is chosen.
+
 ### Added
 
 - `lessons/` records video lessons from the app itself: Bailey on a scripted model, driven in
