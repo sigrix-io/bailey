@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fakes import FakeKeychain, RefusingKeychain
+from fakes import FakeEmbedder, FakeKeychain, RefusingKeychain
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
@@ -36,7 +36,8 @@ def store(tmp_path: Path) -> Iterator[Store]:
 
 
 def _state(store: Store, keys: Any, folder: Path) -> AppState:
-    return AppState(token=TOKEN, store=store, keys=keys, data_folder=folder)
+    # The stand-in search model: with the real one, a request to POST /api/knowledge/model fetches it.
+    return AppState(token=TOKEN, store=store, keys=keys, data_folder=folder, embedder=FakeEmbedder())
 
 
 @pytest.fixture
@@ -79,6 +80,8 @@ def test_every_route_but_the_page_refuses_a_request_without_the_token(state: App
     # And with the token, each reaches its handler: the 401s above came from the guard.
     for method, path in guarded:
         assert client.request(method, path, headers=AUTH, json={}).status_code != 401, (method, path)
+    assert ("POST", "/api/knowledge/model") in guarded, "the canary: the sweep asked for the search model"
+    assert not (state.data_folder / "models").exists(), "nothing was fetched: the search model is a stand-in"
 
 
 def test_a_path_nothing_answers_is_refused_before_it_is_looked_up(state: AppState) -> None:
