@@ -1,6 +1,6 @@
 # Spike S1: the agent core and the local index
 
-Throwaway code for [sigrix-io/sigrix#6558](https://github.com/sigrix-io/sigrix/issues/6558). It
+Throwaway code for spike S1. It
 answers two questions with measurements: can PydanticAI be Bailey's agent core, and can a user's
 documents be searched on their own machine with MarkItDown, fastembed and SQLite? The findings and
 the recommendation are in [`docs/spikes/0001-agent-core-and-local-index.md`](../../docs/spikes/0001-agent-core-and-local-index.md).

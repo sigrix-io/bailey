@@ -1,6 +1,6 @@
 """Knowledge: the person's documents, converted, split, indexed and searched on this computer.
 
-Design §3.7, on S1's ruling (Decision 6, sigrix-io/sigrix#6558; the measurements are in
+Design §3.7, on S1's ruling (Decision 6; the measurements are in
 ``docs/spikes/0001-agent-core-and-local-index.md``), ported from ``spike/s1/index/pipeline.py``:
 
 1. **Convert** each document to Markdown. MarkItDown takes PDF, Word and HTML; Markdown and

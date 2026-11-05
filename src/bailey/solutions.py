@@ -183,7 +183,7 @@ class Server:
         """Whether calling ``tool`` waits for the person: a declared write, or a tool nobody declared.
 
         Postern calls a write declaration advisory to the client and load-bearing for the
-        person, and the store does not verify one yet (sigrix-io/sigrix#5053), so a server
+        person, and the store does not verify one yet, so a server
         listing a tool its declaration leaves out gets no benefit of the doubt.
         """
 

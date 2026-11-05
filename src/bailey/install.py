@@ -7,7 +7,7 @@ Story S10 (design §6 and §7 step 8).
 their paths (:func:`files_from_folder`). Safari unzips a download by default, so a folder is
 what many people have. A folder meets a zip's limits and path rules.
 
-A download from Sigrix has been a solution since sigrix-io/sigrix#6561 (2026-10-01): it carries
+A download from Sigrix has been a solution since 2026-10-01: it carries
 ``plugin.json`` and ``assistant.json`` beside the files a download always carried. One from
 before carries ``SKILL.md``, ``README.md``, ``AGENTS.md``, the MCP configs and ``setup.sh``, and
 :func:`convert_download` writes the solution files it lacks, so one reader reads both.
@@ -143,7 +143,7 @@ def files_from_folder(entries: object) -> dict[str, bytes]:
     return without_wrapper(without_wrapper(files))
 
 
-#: The MCP configurations a download before #6561 carried, in the order one is taken.
+#: The MCP configurations a download from before 2026-10-01 carried, in the order one is taken.
 _DOWNLOAD_CONFIGS = ("mcp.json", ".mcp.json", ".cursor/mcp.json")
 
 
@@ -154,8 +154,7 @@ def convert_download(files: Mapping[str, bytes]) -> tuple[dict[str, bytes], bool
     ``README.md`` titled with the assistant's name, and the MCP configs, with no
     ``assistant.json``. The skill becomes the instructions and the first config the servers,
     with no declaration, so every tool asks before it runs. Its name is the skill's own, or,
-    in a download from before sigrix-io/sigrix#7148, which named it with its title, one made
-    from that title.
+    in an older download, which named it with its title, one made from that title.
     """
 
     # A plugin.json naming its assistant document makes a solution, even a broken one, which
@@ -248,9 +247,8 @@ class CredentialShape:
     pattern: re.Pattern[str]
 
 
-#: Sigrix's own catalogue of credential shapes (``src/services/listing_secret_scan.py`` in
-#: sigrix-io/sigrix), less its JSON Web Token, and with a private key held to its body as well
-#: as its banner. The platform's scan shows a moderator what it finds, and the moderator weighs
+#: The credential shapes Sigrix's own listing scan looks for, less its JSON Web Token, and with
+#: a private key held to its body as well as its banner. The platform's scan shows a moderator what it finds, and the moderator weighs
 #: it; here a find refuses the package with nobody to weigh it, so only the shapes that are a
 #: long-lived key or nothing are kept. A sample token and a key's banner are common in
 #: documentation, and a token expires. Case-sensitive, as there: folding case makes prose match.

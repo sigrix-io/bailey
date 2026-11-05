@@ -1,6 +1,6 @@
 """The tool host: a solution's MCP servers, each its own process, and what each process may see.
 
-Design §4, and S1's findings for this story (sigrix-io/sigrix#6565):
+Design §4, and S1's findings for this story, S7:
 
 - **Each server is built on FastMCP's base ``StdioTransport``**, never its ``uvx``, ``uv
   run`` or ``npx`` helpers, which hand the child Bailey's whole environment, provider

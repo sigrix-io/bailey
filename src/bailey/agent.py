@@ -29,7 +29,7 @@ restart. "No" reaches the model as the tool's result.
 **Documents** (design §3.7) reach the model one of two ways (:mod:`bailey.knowledge`): a
 small collection whole, in numbered passages that join the cached instructions, or a
 larger one through ``search_knowledge``, whose query the model writes. Either way the
-grounding clause (sigrix-io/sigrix#6190) asks it to answer from them, cite each passage it
+grounding clause asks it to answer from them, cite each passage it
 uses as ``[P12]``, and say plainly when they do not cover the question.
 """
 
@@ -139,7 +139,7 @@ def model_settings(connection: Connection) -> ModelSettings:
 
 
 def grounding(documents: Documents) -> str:
-    """The grounding clause (sigrix-io/sigrix#6190), for documents sent whole or searched."""
+    """The grounding clause, for documents sent whole or searched."""
 
     if documents.mode == "whole":
         opening = "Below are the person's documents, in numbered passages. Answer from them."

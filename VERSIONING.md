@@ -64,7 +64,7 @@ naming the two secrets when they are missing, and with Docker Hub's own refusal 
 2. An access token with read and write on it.
 3. In this repository's settings, an environment named `docker-hub`, with two secrets:
    `REGISTRY_USERNAME`, the Docker Hub account the token belongs to, and `REGISTRY_TOKEN`,
-   the token. These are the names `publish_runner_image.yml` in `sigrix-io/sigrix` uses.
+   the token. These are the names Sigrix's own image workflow uses.
 
 A release whose image failed, or that came before the environment existed, gets its
 image by running `image.yml` by hand with the version: it builds from what PyPI serves,

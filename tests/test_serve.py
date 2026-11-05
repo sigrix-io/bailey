@@ -1,6 +1,6 @@
 """``bailey`` run as a user runs it: it starts, refuses what did not come from its page, keeps a key across a restart without writing it in the clear, and says why when it cannot start.
 
-These are story S5's *done when* (sigrix-io/sigrix#6563), on every system CI runs:
+These are story S5's *done when*, on every system CI runs:
 the app starts on a clean machine, a request without the token is refused, and a key
 saved in settings survives a restart without being written to a plain file. They use the
 encrypted file, which every machine has; the keychain's own round trip is

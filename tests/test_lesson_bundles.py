@@ -30,9 +30,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 LESSONS = ROOT / "lessons"
 
-# What Sigrix's import refuses a page for (src/services/learn_import.py and the Learn editor's own
-# rules): a slug that is not lowercase words joined by hyphens, a missing title or summary, a category
-# it does not have. The categories are the Learn index's.
+# What Sigrix's Learn import refuses a page for, by its own rules and the Learn editor's: a slug
+# that is not lowercase words joined by hyphens, a missing title or summary, a category it does not
+# have. The categories are the Learn index's.
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 CATEGORIES = {"foundations", "tutorials", "patterns", "seller", "buyer", "case"}
 
@@ -133,8 +133,7 @@ def test_each_lesson_file_names_one_page_and_every_page_has_its_lesson(pages: Mo
 
 def test_every_page_carries_the_tag_sigrix_lists_the_lessons_by(pages: ModuleType, bundle: ModuleType) -> None:
     """Sigrix's ``/learn/tag/bailey`` lists the lessons by this tag, and ``/open-source/bailey`` shows the learning
-    paths of the lessons that carry it (``BAILEY_LEARN_TAG`` in sigrix-io/sigrix's ``src/services/open_source.py``):
-    a page without it is on neither."""
+    paths of the lessons that carry it: a page without it is on neither."""
 
     assert bundle.TAG == "bailey"
     for page in pages.PATH.lessons:

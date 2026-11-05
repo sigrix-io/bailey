@@ -4,7 +4,7 @@ Sigrix's Learn console imports a lesson from a **bundle**: a folder holding its 
 and its media under fixed names (``video.mp4``, ``captions.vtt``, ``chapters.vtt``, ``cover.jpg``).
 A **pack** is a zip of bundles with the learning path that lists them (``path.json``), and its
 Import lessons page checks every lesson, shows what importing them will do, and saves them. The
-format is Sigrix's (``src/services/learn_import.py`` in sigrix-io/sigrix); this module writes it.
+format is Sigrix's, as its Learn import reads it; this module writes it.
 
 A lesson records into a folder of its own (``studio.record``), named by its page's ``folder``, which
 is its bundle: the files above, and ``chapters.txt`` for a YouTube description, which an import

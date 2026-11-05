@@ -1,6 +1,6 @@
 """Apps: a solution's crew, run by the real Postern runner and reached through Bailey's proxy (story S9).
 
-Story S9's *done when* (sigrix-io/sigrix#6567): a solution with one crew app shows its
+Story S9's *done when*: a solution with one crew app shows its
 form, runs it on the user's key, and shows its steps as they happen. The fixture
 solution, ``tests/fixtures/weekly-digest``, carries one crew app. Everything here is
 real but CrewAI and the app's environment: the runner is ``sigrix_runtime.postern``,

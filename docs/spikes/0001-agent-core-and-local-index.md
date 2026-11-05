@@ -2,7 +2,6 @@
 
 **Status:** measured on 2026-10-14. The owner ruled on decision 1, the agent core, and decision 6,
 knowledge kept on the user's machine, on 2026-10-16: see *Ruling*, below.
-Refs [sigrix-io/sigrix#6558](https://github.com/sigrix-io/sigrix/issues/6558).
 The code that produced every number here is under `spike/s1/` at commit
 [`d6537f0`](https://github.com/sigrix-io/bailey/tree/d6537f078c4647c44d98fb41b9b94e8fe91ff4a7/spike/s1), with the JSON each
 script printed in `spike/s1/results/`.
@@ -209,7 +208,7 @@ collection passes about 100,000 passages, more than a small business's documents
 
 ## Ruling
 
-The owner ruled on both decisions on 2026-10-16, on sigrix-io/sigrix#6558.
+The owner ruled on both decisions on 2026-10-16.
 
 **Decision 1: PydanticAI, as recommended, with three guards.**
 
