@@ -15,6 +15,7 @@ from bundle import LearningPath, Page
 FIRST_SOLUTION = Page(
     folder="bailey-lesson-01-first-solution",
     slug="bailey-lesson-1-your-first-solution",
+    youtube_url="https://www.youtube.com/watch?v=OWB-Dw8namc",
     title="Bailey lesson 1: your first solution",
     summary=(
         "Choose your AI, install a ready-made solution and give it a real job: answers from your own "
@@ -35,6 +36,7 @@ FIRST_SOLUTION = Page(
 TOOLS_THAT_ASK = Page(
     folder="bailey-lesson-02-tools-that-ask",
     slug="bailey-lesson-2-tools-that-ask-before-they-act",
+    youtube_url="https://www.youtube.com/watch?v=a6gthLlTU5Q",
     title="Bailey lesson 2: tools that ask before they act",
     summary=(
         "What a solution's tools may do, which of them ask first, and how you answer: once, always for "
@@ -54,6 +56,7 @@ TOOLS_THAT_ASK = Page(
 APPS_THAT_RUN_A_CREW = Page(
     folder="bailey-lesson-03-apps-that-run-a-crew",
     slug="bailey-lesson-3-apps-that-run-a-crew",
+    youtube_url="https://www.youtube.com/watch?v=c5B9m8V6amU",
     title="Bailey lesson 3: apps that run a crew",
     summary=(
         "A solution's app on the install screen, its libraries installed once, and a run of its crew "
@@ -72,6 +75,7 @@ APPS_THAT_RUN_A_CREW = Page(
 CHECK_A_SOLUTION = Page(
     folder="bailey-lesson-04-check-a-solution",
     slug="bailey-lesson-4-check-a-solution",
+    youtube_url="https://www.youtube.com/watch?v=4qbF348Y3DY",
     title="Bailey lesson 4: check a solution",
     summary=(
         "bailey doctor and bailey check, from your terminal: is this machine ready, does this solution do "

@@ -6,6 +6,11 @@ described in `VERSIONING.md`.
 
 ## [Unreleased]
 
+### Added
+
+- The four lessons are on YouTube, and each page names its video, so the next pack and import
+  link the lesson's page on sigrix.io to it.
+
 ## [0.1.1] — 2026-11-05
 
 A fix release. Bailey sends no telemetry again, onnxruntime's included. An app opens from a
