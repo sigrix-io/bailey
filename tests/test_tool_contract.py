@@ -7,7 +7,7 @@ survives a restart. They run on the provider emulator and a real stdio MCP serve
 ``tests/tool_servers/mailbox.py``: two reads and one write, whose drafts land in a file
 so a test can tell whether a call ran.
 
-Story S7's *done when* (sigrix-io/sigrix#6565) is here too: a solution with one read and
+Story S7's *done when* is here too: a solution with one read and
 one write tool runs the read without asking, asks before the write and honours all
 three answers. "Always" is honoured by the store and the server, and
 ``tests/test_tools_chat.py`` drives it through the routes.

@@ -129,8 +129,8 @@ published. A lesson already on the site is updated in place, matched by its slug
 recorded again, or a summary corrected in `pages.py`, reaches the site with a pack and an import.
 
 A lesson's page is in `pages.py`: its folder, its address (`slug`), title, summary, body,
-category and tags, and the order of the learning path. The format is Sigrix's
-(`src/services/learn_import.py` there) and `bundle.py` writes it. A new lesson adds its page there,
+category and tags, and the order of the learning path. The format is the one Sigrix's
+Learn import reads, and `bundle.py` writes it. A new lesson adds its page there,
 names it in its file (`Lesson(page=pages.THE_PAGE, ...)`), and joins `pages.PATH`. Every page
 carries the tag `bailey`, which Learn lists the lessons by (`/learn/tag/bailey`), and so does
 Bailey's own page on sigrix.io, and says what in its lesson is scripted or a stand-in. Once a lesson

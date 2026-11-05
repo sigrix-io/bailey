@@ -2,7 +2,7 @@
 
 The routes are the page's whole surface, so these drive them as it does, with a real
 stdio server (``tests/tool_servers/mailbox.py``) behind the emulated provider. Story
-S7's *done when* (sigrix-io/sigrix#6565) runs end to end here: the read runs without
+S7's *done when* runs end to end here: the read runs without
 asking, the write asks, and once, always and no are each honoured, "always" until it is
 revoked.
 """

@@ -2,7 +2,7 @@
 
 The routes are the page's whole surface, so these drive them as it does, with the provider
 emulator and a stand-in for the search model (``fakes.FakeEmbedder``). Story S8's *done
-when* (sigrix-io/sigrix#6566) runs end to end on the fixture solution's samples: a covered
+when* runs end to end on the fixture solution's samples: a covered
 question is answered citing the passage and its file, an uncovered one by saying the
 documents do not cover it.
 """

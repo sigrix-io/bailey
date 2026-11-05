@@ -131,7 +131,7 @@ Each version is a directory here, and a new version is a new directory beside
 the old ones, never an edit in place: `0.1/` is the format a 0.1 document names.
 The schema's `$id`, `https://sigrix.io/schemas/bailey/0.1/assistant.schema.json`,
 is a permanent name. It is never reused for anything else, and it resolves:
-[Sigrix](https://github.com/sigrix-io/sigrix) vendors this directory and serves
+[Sigrix](https://sigrix.io) vendors this directory and serves
 the schema at its `$id`, as it serves Postern's. A change here is therefore also
 a change there, and the pull request making one says so.
 

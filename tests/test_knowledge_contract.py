@@ -1,6 +1,6 @@
 """The knowledge contract, on every kind of provider: a covered question is answered with a citation, an uncovered one says so.
 
-Story S8's *done when* (sigrix-io/sigrix#6566), on a solution's samples: the fixture
+Story S8's *done when*, on a solution's samples: the fixture
 solution's three (``tests/fixtures/shop-replies/samples``), sent whole and searched. The
 provider emulator answers as a grounded model should, from the passage sharing the
 question's words or by saying the documents do not cover it, so these prove the plumbing:

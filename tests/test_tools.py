@@ -1,6 +1,6 @@
 """The tool host: a server sees only what its configuration names, keeps running between messages, and says why when it cannot start.
 
-S1's first requirement for this story (sigrix-io/sigrix#6565): FastMCP's ``uvx`` and
+S1's first requirement for this story, S7: FastMCP's ``uvx`` and
 ``npx`` transports hand the child Bailey's whole environment once one variable is named.
 These tests start a real stdio server, ``tests/tool_servers/mailbox.py``, with a decoy
 secret and a provider key in Bailey's environment, and ask it what it can see.

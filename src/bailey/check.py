@@ -1,6 +1,6 @@
 """``bailey check``: a solution's examples, and a grounding pair per knowledge slot, run headless in Bailey's own core.
 
-Story S11 (sigrix-io/sigrix#6569). "Works with Bailey — verified" has to mean the solution
+Story S11. "Works with Bailey — verified" has to mean the solution
 ran in Bailey's own runtime, so the check is not a second agent loop that could drift from
 the first. It starts a Bailey of its own in a temporary folder and drives the app's own
 routes in-process, over httpx's ASGI transport, with no socket:
@@ -13,7 +13,7 @@ routes in-process, over httpx's ASGI transport, with no socket:
 Nothing reaches the person's own assistants or conversations, and the folder goes with the run.
 
 **The cases** (:func:`cases_of`) are each of the solution's examples, and for each knowledge
-slot with a sample a grounding pair (sigrix-io/sigrix#6190): a question the sample answers,
+slot with a sample a grounding pair: a question the sample answers,
 made from one of its passages, and one about a made-up name no document holds.
 
 **The verdicts** (:func:`judge`) hold an answer to what Bailey can see in it, never to its

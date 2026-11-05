@@ -11,6 +11,13 @@ described in `VERSIONING.md`.
 - The four lessons are on YouTube, and each page names its video, so the next pack and import
   link the lesson's page on sigrix.io to it.
 
+### Changed
+
+- Nothing here names the Sigrix platform's private code any more. The docstrings, comments and
+  docs that cited its issues, linked into its repository or named its modules say what they meant
+  instead, and the recipe for the download fixture is kept with the platform's own code.
+  `tests/test_names_nothing_private.py` keeps it so.
+
 ## [0.1.1] — 2026-11-05
 
 A fix release. Bailey sends no telemetry again, onnxruntime's included. An app opens from a

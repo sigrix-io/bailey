@@ -1,15 +1,14 @@
 """Installing a solution from a file (story S10): what arrives, the checks before anything is written, the screen.
 
-Story S10's *done when* (sigrix-io/sigrix#6568): a pilot solution and a download from Sigrix
+Story S10's *done when*: a pilot solution and a download from Sigrix
 both install from a file, and a package carrying a credential value or a path outside its
 folder is refused with a sentence saying why.
 
 - **A download from Sigrix** is ``tests/fixtures/sigrix-download/order-desk.zip``, the bytes
   Sigrix's own builder writes (its README says how). It installs as it is, and in the shape a
-  download had before sigrix-io/sigrix#6561, which this file makes by taking those additions out.
-- **The pilot**, Customer email replies (sigrix-io/sigrix#6571), is read from a sigrix checkout's
-  ``solutions/customer-email-replies/package`` named by ``BAILEY_TEST_PILOT``, since copying it into
-  these tests is its owner's call; without one, that test is skipped. A made-up shop shaped like
+  download had before 2026-10-01, which this file makes by taking those additions out.
+- **The pilot**, Customer email replies, is read from the copy of its package that
+  ``BAILEY_TEST_PILOT`` names, since copying it into these tests is its owner's call; without one, that test is skipped. A made-up shop shaped like
   it (``tests/fixtures/shop-replies``) installs the same two ways on every run.
 """
 
@@ -56,8 +55,8 @@ TOKEN = "s" * 43
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 FIXTURES = Path(__file__).parent / "fixtures"
 ORDER_DESK = FIXTURES / "sigrix-download" / "order-desk.zip"
-#: What sigrix-io/sigrix#6561 added to a download, which one from before it lacks.
-ADDED_BY_6561 = ("plugin.json", "assistant.json", "mcp.json", "skills/", "samples/")
+#: What a download gained when it became a solution, which one from before lacks.
+SOLUTION_ADDITIONS = ("plugin.json", "assistant.json", "mcp.json", "skills/", "samples/")
 
 
 @pytest.fixture
@@ -98,14 +97,13 @@ def _order_desk() -> dict[str, bytes]:
     return unzip_solution(ORDER_DESK.read_bytes())
 
 
-def _before_6561(files: dict[str, bytes], *, titled: bool = False) -> dict[str, bytes]:
-    """The download as it was before sigrix-io/sigrix#6561 made it a solution.
+def _before_solutions(files: dict[str, bytes], *, titled: bool = False) -> dict[str, bytes]:
+    """The download as it was before it became a solution, on 2026-10-01.
 
-    ``titled`` names its SKILL.md with the assistant's title, as downloads did before
-    sigrix-io/sigrix#7148.
+    ``titled`` names its SKILL.md with the assistant's title, as older downloads did.
     """
 
-    old = {name: data for name, data in files.items() if not name.startswith(ADDED_BY_6561)}
+    old = {name: data for name, data in files.items() if not name.startswith(SOLUTION_ADDITIONS)}
     if titled:
         old["SKILL.md"] = old["SKILL.md"].replace(b'name: "order-desk"', b"name: Order desk")
     return old
@@ -198,7 +196,7 @@ def test_a_download_from_sigrix_installs_as_it_is(client: TestClient, state: App
 def test_a_download_from_before_downloads_were_solutions_is_converted_and_installs(
     client: TestClient, state: AppState, titled: bool
 ) -> None:
-    old = _before_6561(_order_desk(), titled=titled)
+    old = _before_solutions(_order_desk(), titled=titled)
     assert "assistant.json" not in old and "SKILL.md" in old and ".mcp.json" in old, "the canary: the old shape"
     screen, installed = _install(client, old)
     assert (screen["name"], screen["title"], screen["converted"]) == ("order-desk", "Order desk", True)
@@ -615,7 +613,7 @@ def test_a_skill_name_comes_from_a_title_without_the_reserved_words() -> None:
 def test_a_solution_is_never_converted_and_a_plain_plugin_is() -> None:
     files = _order_desk()
     assert convert_download(files) == (files, False)
-    plain = {**_before_6561(files), "plugin.json": json.dumps({"name": "order-desk"}).encode()}
+    plain = {**_before_solutions(files), "plugin.json": json.dumps({"name": "order-desk"}).encode()}
     converted, was = convert_download(plain)
     assert was is True and json.loads(converted["assistant.json"])["instructions"] == "skills/order-desk/SKILL.md"
 

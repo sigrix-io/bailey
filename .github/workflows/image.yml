@@ -5,7 +5,7 @@ name: Image
 # A workflow of its own, beside release.yml rather than in it: PyPI trusts that workflow
 # through OIDC, so it holds no credential at all (tests/test_workflow_pins.py), while Docker
 # Hub takes an account and an access token. Those are REGISTRY_USERNAME and REGISTRY_TOKEN,
-# as publish_runner_image.yml in sigrix-io/sigrix names them, in this repository's
+# as Sigrix's own image workflow names them, in this repository's
 # `docker-hub` environment, and only the two jobs that push read them. VERSIONING.md has the
 # owner's half.
 #

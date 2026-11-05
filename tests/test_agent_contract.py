@@ -5,7 +5,7 @@ version bump must pass before it lands. They run on the spike's emulator, ported
 ``tests/emulated_providers.py``, which speaks each provider's own wire protocol and
 refuses what the real services refuse.
 
-Story S6's *done when* (sigrix-io/sigrix#6563's sibling, #6564) is the middle of this
+Story S6's *done when* is the middle of this
 file: an assistant with two skills answers from the right one, loads only that skill's
 body, and streams on all three kinds of provider. Each skill's body opens with a marker,
 so a test can tell whose body reached the model by reading what was sent.

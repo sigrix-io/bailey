@@ -1,6 +1,6 @@
 """Documents whole in the prompt or searched: what one message costs each way, at a few collection sizes.
 
-Story S8 (sigrix-io/sigrix#6566) sets ``bailey.knowledge.WHOLE_LIMIT`` from this, as S1's
+Story S8 sets ``bailey.knowledge.WHOLE_LIMIT`` from this, as S1's
 ruling asked. It prices one message both ways from the price data PydanticAI ships with
 (``genai_prices``), on the two providers whose caches keep a prompt's stable start, with the
 cache warm and with it gone cold, as it does after five idle minutes:

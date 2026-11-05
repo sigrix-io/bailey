@@ -1,6 +1,6 @@
 """``bailey check``: a solution's examples, and a grounding pair per knowledge slot, run headless in Bailey's own core.
 
-Story S11's *done when* (sigrix-io/sigrix#6569): the check passes on the pilot's samples,
+Story S11's *done when*: the check passes on the pilot's samples,
 and fails, naming the case, once the pilot's grounding skill is removed. The model is the
 emulator's replay (``tests/emulated_providers.py``): handed each example's reply, it loads
 the skill the reply follows and gives that reply, and with the skill gone gives it without
@@ -8,7 +8,7 @@ what the skill grounds. That proves the check runs a solution through the app's 
 judges what each answer shows, and names each case that fails. Whether a real model drops
 its sources once the skill is gone is the owner's run against a real provider.
 
-The pilot, Customer email replies (sigrix-io/sigrix#6571), is read from the sigrix checkout
+The pilot, Customer email replies, is read from the copy of its package
 ``BAILEY_TEST_PILOT`` names, as ``tests/test_install.py`` reads it; without one it is
 skipped, and ``tests/fixtures/grounded-replies``, a made-up shop in its shape, runs every time.
 """

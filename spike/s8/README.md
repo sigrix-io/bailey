@@ -1,7 +1,6 @@
 # S8: documents whole or searched
 
-The measurement behind `bailey.knowledge.WHOLE_LIMIT`, for
-[sigrix-io/sigrix#6566](https://github.com/sigrix-io/sigrix/issues/6566). S1's ruling sent a
+The measurement behind `bailey.knowledge.WHOLE_LIMIT`, for story S8. S1's ruling sent a
 collection under a size limit into the prompt whole, where prompt caching keeps its repeat cost
 low, and left this story to set the limit by measurement. None of it ships.
 
