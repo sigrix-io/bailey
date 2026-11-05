@@ -66,6 +66,9 @@ described in `VERSIONING.md`.
   "Unlock your keys with their passphrase first.", as chat does. The route that forwards an app's
   requests to its runner let the error through as a bare 500, which the page could only call "not
   JSON", whatever the provider; a keychain that refuses is said so there too.
+- A view opened from the menu while the page is still starting stays open. The menu shows before
+  the settings have loaded, and the page then opened Chat whatever had been chosen meanwhile;
+  clicking Assistants as the menu appeared landed on Chat every time.
 - A conversation in which the model once replied with only its thinking stops telling it, on every
   later message, that its previous response failed. Bailey does not store such a reply, but it kept
   PydanticAI's request for another try and sent that on beside the person's message, before the

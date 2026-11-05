@@ -146,3 +146,32 @@ def test_every_file_served_exists_and_every_file_there_is_served() -> None:
     vendored = {f"gatehouse/{name}" for name in release["files"] if name.endswith((".js", ".css"))}
     assert present | vendored == set(STATIC_FILES)
     assert all((WEB / name).is_file() for name in STATIC_FILES)
+
+
+def _function(source: str, name: str) -> str:
+    """A function's whole text in a script: from ``function name(`` to the brace that closes it."""
+
+    start = source.index(f"function {name}(")
+    depth = 0
+    for index in range(source.index("{", start), len(source)):
+        depth += {"{": 1, "}": -1}.get(source[index], 0)
+        if depth == 0:
+            return source[start : index + 1]
+    raise AssertionError(f"{name} is never closed")
+
+
+def test_a_view_opened_while_the_page_starts_stays_open() -> None:
+    """The menu shows before the settings have loaded, and the page then opens Chat, so a click on
+    Assistants in between landed back on Chat. Nothing in the suite runs the page's script, so
+    this reads it: each start forgets the last one's choice, a click on the menu makes one, and
+    Chat opens at the start only when none was made."""
+
+    script = (WEB / "app.js").read_text(encoding="utf-8")
+    begin = _function(script, "begin")
+    assert 'byId("nav").hidden = false;' in begin, "the canary: begin() is where the menu shows"
+    assert "viewChosen = false;" in begin, "each start forgets the last one's choice"
+    assert begin.index("viewChosen = false;") < begin.index('api("GET", "/api/status")'), begin
+    menu = script[script.index('document.querySelectorAll("[data-view]")') :]
+    assert re.search(r'addEventListener\("click", function \(event\) \{\s*viewChosen = true;', menu), menu[:400]
+    assert [line.strip() for line in begin.splitlines() if "openView(" in line] == ['openView("chat");'], begin
+    assert re.search(r'if \(!viewChosen\) \{\s*openView\("chat"\);\s*\}', begin), begin
