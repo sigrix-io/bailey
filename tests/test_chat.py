@@ -254,6 +254,24 @@ def test_locked_keys_are_said_so_before_anything_is_sent(store: Store, tmp_path:
     assert store.messages(conversation_id) == [], "nothing was stored for a message never sent"
 
 
+def test_with_no_passphrase_chosen_a_server_that_needs_no_key_answers(
+    store: Store, tmp_path: Path, provider_base: str
+) -> None:
+    """No key file means no key, so nothing to unlock: a local server answers, and a provider that
+    needs a key asks for it. Bailey asked for a passphrase first, though nothing was kept under one."""
+
+    state = AppState(token=TOKEN, store=store, keys=EncryptedFileKeys(tmp_path / FILE_NAME), data_folder=tmp_path)
+    client = TestClient(build_app(state), base_url="http://127.0.0.1:8123")
+    local = {"provider": "openai-compatible", "address": provider_base + "/local/v1", "model": "qwen3:8b"}
+    assert client.put("/api/settings", headers=AUTH, json=local).status_code == 200
+    response = client.post(f"/api/conversations/{_conversation(client)}/messages", headers=AUTH, json={"text": "Hi"})
+    assert response.status_code == 200 and '"type": "done"' in response.text, response.text
+    assert client.put("/api/settings", headers=AUTH, json={"provider": "anthropic"}).status_code == 200
+    response = client.post(f"/api/conversations/{_conversation(client)}/messages", headers=AUTH, json={"text": "Hi"})
+    assert (response.status_code, response.json()["error"]) == (409, "Save your Anthropic key in Settings first.")
+    assert not (tmp_path / FILE_NAME).exists(), "nothing was written: a key is kept only under a passphrase"
+
+
 def test_a_conversation_nothing_names_is_a_404(client: TestClient) -> None:
     assert client.get("/api/conversations/nope", headers=AUTH).status_code == 404
     assert client.post("/api/conversations/nope/messages", headers=AUTH, json={"text": "Hi"}).status_code == 404

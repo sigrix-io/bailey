@@ -1891,9 +1891,13 @@
 
   // Start ---------------------------------------------------------------------
 
+  // The menu shows before the settings have loaded, and Chat opens once they have, unless the
+  // person opened a view in between: that one stays open.
+  var viewChosen = false;
   var views = document.querySelectorAll("[data-view]");
   for (var index = 0; index < views.length; index += 1) {
     views[index].addEventListener("click", function (event) {
+      viewChosen = true;
       openView(event.currentTarget.getAttribute("data-view"));
     });
   }
@@ -1903,6 +1907,7 @@
       showOnly(byId("no-session"));
       return;
     }
+    viewChosen = false;
     byId("no-session").hidden = true;
     byId("loading").hidden = false;
     api("GET", "/api/status")
@@ -1913,7 +1918,9 @@
         return loadSettings();
       })
       .then(function () {
-        openView("chat");
+        if (!viewChosen) {
+          openView("chat");
+        }
       })
       .catch(function (error) {
         if (token) {

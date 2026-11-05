@@ -410,8 +410,8 @@ async def _capture(
             try:
                 await page.goto(bailey.address)
                 await page.wait_for_function("() => window.__demo && window.__demo.ready()")
-                # The page is ready once it has opened Chat: its menu shows a moment earlier, while it
-                # still loads its settings, and a click then is undone when it opens Chat.
+                # Every lesson starts on Chat, which the page opens once its settings have loaded. Its
+                # menu shows a moment earlier, and a click then would open another view first.
                 await page.locator('[data-panel="chat"]').wait_for(state="visible")
                 if lesson.setup is not None:
                     await lesson.setup(studio)

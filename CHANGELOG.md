@@ -61,6 +61,10 @@ described in `VERSIONING.md`.
   from there: "The app's runner could not start: No such file or directory." The folder is now
   named in full where `BAILEY_HOME` is read, so every path made from it is too. Settings names
   the key file in full, and `bailey doctor` the data folder.
+- A provider that needs no key, such as a local server, chats and runs apps with no passphrase
+  chosen. Where keys go to the encrypted file, as in the `sigrix/bailey` image, Bailey asked for
+  the passphrase first, though nothing was kept under one: with no file there is no key, so
+  nothing to unlock. A key file that exists still asks for its passphrase.
 - While an answer streams, a tool call the model is to make again, as after an error from its
   tool server, says it was given another try. PydanticAI 2.63 reports such a call with a word of
   its own, `retried`, which the page did not know, so the call read as still running.
@@ -68,6 +72,9 @@ described in `VERSIONING.md`.
   "Unlock your keys with their passphrase first.", as chat does. The route that forwards an app's
   requests to its runner let the error through as a bare 500, which the page could only call "not
   JSON", whatever the provider; a keychain that refuses is said so there too.
+- A view opened from the menu while the page is still starting stays open. The menu shows before
+  the settings have loaded, and the page then opened Chat whatever had been chosen meanwhile;
+  clicking Assistants as the menu appeared landed on Chat every time.
 - A conversation in which the model once replied with only its thinking stops telling it, on every
   later message, that its previous response failed. Bailey does not store such a reply, but it kept
   PydanticAI's request for another try and sent that on beside the person's message, before the
