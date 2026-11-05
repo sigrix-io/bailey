@@ -10,4 +10,15 @@ machine has what the assistant will need. It reads the local machine only and
 makes no network call.
 """
 
+import os as _os
+
 __version__ = "0.1.0"
+
+#: The switches that turn off the telemetry a library Bailey loads sends from native code, where no
+#: Python audit hook sees it. They are set here, before anything imports such a library, and handed
+#: to each app's runner (``bailey.apps.runner_environment``). onnxruntime, which document search and
+#: MarkItDown's file detection run on, otherwise tries to reach Microsoft's telemetry collector once
+#: it has been loaded for about ten seconds.
+NATIVE_TELEMETRY_OFF = {"ORT_DISABLE_TELEMETRY": "1"}
+
+_os.environ.update(NATIVE_TELEMETRY_OFF)

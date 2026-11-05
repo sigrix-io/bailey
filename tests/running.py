@@ -16,6 +16,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from bailey import NATIVE_TELEMETRY_OFF
+
 SRC = Path(__file__).resolve().parents[1] / "src"
 LAUNCH = re.compile(r"Open it at (http://127\.0\.0\.1:(\d+)/)#token=(\S+)")
 
@@ -27,10 +29,11 @@ _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def environment(home: Path | str, extra: Mapping[str, str] | None = None) -> dict[str, str]:
+    # Not the switches this test process set by importing Bailey either: the Bailey under test sets its own.
     env = {
         key: value
         for key, value in os.environ.items()
-        if key not in ("BAILEY_HOME", "BAILEY_KEYS", "BAILEY_PASSPHRASE")
+        if key not in ("BAILEY_HOME", "BAILEY_KEYS", "BAILEY_PASSPHRASE", *NATIVE_TELEMETRY_OFF)
     }
     env.update(
         {

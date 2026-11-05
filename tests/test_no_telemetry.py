@@ -12,27 +12,44 @@ with its samples, converts an HTML page through MarkItDown, cites a passage, and
 collection past what goes whole, so the search model is looked for on this computer and,
 not being here, is only announced: nothing fetches it unasked. A canary run plants an outbound connection
 first, so a recorder that records nothing cannot pass for an app that sends nothing.
+
+A library's native code opens connections no audit hook sees, so every run also gives the
+app, and what it starts, a proxy that records each request and connects it nowhere
+(``recording_proxy.py``): a client that honours the proxy variables, as onnxruntime's
+telemetry does, is written down there. The canary plants one such request too. onnxruntime,
+which MarkItDown and the search model load, sends Microsoft's telemetry from native code
+unless switched off; the knowledge run checks the switch was on when the app loaded it
+(``bailey.NATIVE_TELEMETRY_OFF``), and one test holds onnxruntime to its switch.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
 import emulated_providers as emulator
+import pytest
 from app_environments import ready_environment
+from recording_proxy import RecordingProxy
 from running import Running
 
+from bailey import NATIVE_TELEMETRY_OFF
 from bailey.solutions import Assistant, Server, Skill, read_solution, zip_solution
 
 PASSPHRASE = "correct horse battery"
 
 _RECORDER = """
-import json, sys
+import json, os, sys
 
 log = open(sys.argv[1], "a", buffering=1, encoding="utf-8")
+#: The libraries that send telemetry from native code unless switched off, and the switches.
+NATIVE = {"onnxruntime"}
+SWITCHES = __SWITCHES__
 
 
 def hook(event, args):
@@ -45,14 +62,23 @@ def hook(event, args):
     elif event == "socket.getaddrinfo":
         host = args[0]
         log.write(json.dumps({"event": event, "host": host.decode() if isinstance(host, bytes) else host}) + "\\n")
+    elif event == "import" and args[0] in NATIVE:
+        switches = {name: os.environ.get(name) for name in SWITCHES}
+        log.write(json.dumps({"event": event, "module": args[0], "switches": switches}) + "\\n")
 
 
 sys.addaudithook(hook)
 if sys.argv[2] == "canary":
     import socket
+    import urllib.request
 
     try:
         socket.create_connection(("192.0.2.1", 9), timeout=0.05).close()  # TEST-NET-1: routes nowhere
+    except OSError:
+        pass
+    # And through the proxy this process is given, as a library's own client goes, native code's too.
+    try:
+        urllib.request.urlopen("https://192.0.2.2/", timeout=5).close()
     except OSError:
         pass
 
@@ -190,12 +216,15 @@ def _app_run(bailey: Running, home: Path, children_log: Path) -> None:
 
 
 def _run(tmp_path: Path, mode: str) -> list[dict[str, Any]]:
+    """What the app's process recorded, then what reached its proxy, from it or anything it started."""
+
     recorder = tmp_path / "recorder.py"
-    recorder.write_text(_RECORDER, encoding="utf-8")
+    recorder.write_text(_RECORDER.replace("__SWITCHES__", repr(sorted(NATIVE_TELEMETRY_OFF))), encoding="utf-8")
     log = tmp_path / f"{mode}.jsonl"
+    proxy = RecordingProxy()
     bailey = Running(
         tmp_path / f"home-{mode}",
-        extra_env={"BAILEY_PASSPHRASE": PASSPHRASE},
+        extra_env={"BAILEY_PASSPHRASE": PASSPHRASE, **proxy.environment()},
         command=[sys.executable, str(recorder), str(log), mode],
     )
     try:
@@ -223,14 +252,17 @@ def _run(tmp_path: Path, mode: str) -> list[dict[str, Any]]:
             _app_run(bailey, tmp_path / f"home-{mode}", tmp_path / "apps-children.jsonl")
     finally:
         bailey.stop()
-    if not log.exists():
-        return []
-    return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line.strip()]
+        proxy.close()
+    lines = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+    return [json.loads(line) for line in lines if line.strip()] + proxy.requests
 
 
 def test_the_recorder_catches_a_planted_outbound_connection(tmp_path: Path) -> None:
     caught = outbound(_run(tmp_path, "canary"))
     assert {"event": "socket.connect", "host": "192.0.2.1", "port": 9} in caught
+    # Its request line ends in HTTP/1.0 from Python 3.11's urllib and HTTP/1.1 from later ones.
+    proxied = [event["request"].rsplit(" ", 1)[0] for event in caught if event["event"] == "proxy"]
+    assert proxied == ["CONNECT 192.0.2.2:443"], caught
 
 
 def test_the_app_connects_to_nothing_but_this_computer(tmp_path: Path) -> None:
@@ -255,6 +287,10 @@ def test_documents_cited_and_searched_connect_to_nothing_and_fetch_no_model_unas
     events = _run(tmp_path, "knowledge")
     assert any(event.get("event") == "socket.connect" for event in events), "the canary: the chat reached its provider"
     assert outbound(events) == []
+    # The canary too: converting a document loaded onnxruntime. Its telemetry, sent from native code
+    # once it has run about ten seconds, was switched off before it loaded.
+    (loaded,) = [event for event in events if event.get("event") == "import" and event["module"] == "onnxruntime"]
+    assert loaded["switches"] == NATIVE_TELEMETRY_OFF, "onnxruntime was loaded with its telemetry on"
 
 
 def test_an_app_and_its_runner_connect_to_nothing_but_this_computer_and_the_provider(tmp_path: Path) -> None:
@@ -266,3 +302,48 @@ def test_an_app_and_its_runner_connect_to_nothing_but_this_computer_and_the_prov
     )
     assert outbound(events) == [], "Bailey's own process"
     assert outbound(children) == [], "the runner, its worker and the crew: no licence check, no update check"
+
+
+#: A process that loads onnxruntime and waits, as a Bailey does once it has converted a document.
+_LOAD_ONNXRUNTIME = "import time, onnxruntime; time.sleep(120)"
+
+#: What starting Python and loading onnxruntime need from the environment, and nothing more. Its
+#: telemetry keeps quiet where it finds a CI's or a cloud's marker (CI, GITHUB_ACTIONS,
+#: KUBERNETES_SERVICE_HOST and others its library lists), which a person's computer has none of.
+_A_PERSONS_COMPUTER = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "LD_LIBRARY_PATH", "SSL_CERT_FILE", "SSL_CERT_DIR")
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux", reason="onnxruntime's 1DS client is in its Linux build, where it was measured"
+)
+def test_onnxruntime_sends_its_telemetry_only_when_not_switched_off() -> None:
+    """onnxruntime 1.31 tries to reach Microsoft's telemetry collector from native code, through the
+    proxy its environment names, about ten seconds after it loads. Two processes load it at once,
+    one with Bailey's switch: once the other has asked its proxy, the switched one has asked nothing.
+    Both run as on a person's computer, since in CI it would stay quiet either way. An onnxruntime
+    bump that renames its switch fails here."""
+
+    plain = {name: os.environ[name] for name in _A_PERSONS_COMPUTER if name in os.environ}
+    on, off = RecordingProxy(), RecordingProxy()
+    quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    processes = [
+        subprocess.Popen([sys.executable, "-c", _LOAD_ONNXRUNTIME], env={**plain, **on.environment()}, **quiet),
+        subprocess.Popen(
+            [sys.executable, "-c", _LOAD_ONNXRUNTIME],
+            env={**plain, **off.environment(), **NATIVE_TELEMETRY_OFF},
+            **quiet,
+        ),
+    ]
+    try:
+        deadline = time.monotonic() + 90
+        while not on.requests and time.monotonic() < deadline:
+            time.sleep(0.25)
+        time.sleep(1)  # time for the switched one to have asked too, were it going to
+    finally:
+        for process in processes:
+            process.kill()
+            process.wait(timeout=30)
+        on.close()
+        off.close()
+    assert on.requests, "the canary: with its telemetry on, onnxruntime asked its proxy for nothing in 90 seconds"
+    assert off.requests == [], off.requests
