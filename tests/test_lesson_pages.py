@@ -143,6 +143,7 @@ def test_a_page_is_written_as_the_import_reads_it(tmp_path: Path, pages: ModuleT
 
 
 def test_each_lessons_youtube_upload_is_one_youtube_takes_and_says_what_is_scripted(pages: ModuleType) -> None:
+    assert "on a scripted model" in pages.PRODUCT.scripted, "every description says the answers are scripted"
     for number, page in enumerate(pages.PATH.lessons, start=1):
         upload = youtube.upload_for(page, number=number, path=pages.PATH, product=pages.PRODUCT, chapters_text=CHAPTERS)
         assert upload.title == page.title

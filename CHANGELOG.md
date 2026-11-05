@@ -17,6 +17,13 @@ described in `VERSIONING.md`.
   docs that cited its issues, linked into its repository or named its modules say what they meant
   instead, and the recipe for the download fixture is kept with the platform's own code.
   `tests/test_names_nothing_private.py` keeps it so.
+- The lessons are recorded with [Pageant](https://github.com/sigrix-io/pageant), the recorder that
+  started in `lessons/` and is a package of its own now: `pageant record lessons/first_solution.py`
+  records a lesson, and `pageant pack` and `pageant youtube-text` on `lessons/pages.py` publish
+  them. `lessons/` keeps the four lessons, their pages, the scripted model (Pageant's start hook
+  for Bailey), the stand-in tool server and the solutions. Recorded again with it, every lesson's
+  page and cover are byte for byte the published ones, and its captions and chapters say the same
+  things in the same order, within the second or so a recording moves from one run to the next.
 
 ## [0.1.1] — 2026-11-05
 
