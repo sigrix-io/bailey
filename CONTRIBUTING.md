@@ -21,7 +21,9 @@ tools and their documents) is on `main`.
   doctor reads this machine and nothing else.
 - Anything that makes the app reach a host other than this computer and the
   AI provider the user chose. There is no telemetry, and a test fails on any
-  other connection.
+  other connection. A library that sends its own from native code, where no
+  audit hook sees it, is switched off in `bailey.NATIVE_TELEMETRY_OFF`, as
+  onnxruntime is; the test also gives the app a proxy that records every request.
 - A request the app answers without the session's token, beyond the page and
   its static files. A new route is refused until it is named as public, which
   it should not be.
@@ -91,7 +93,8 @@ Documents are tested on the fixture solution `tests/fixtures/shop-replies`, with
 One test runs the real model: set `BAILEY_SEARCH_MODEL` to a folder holding it,
 or `BAILEY_TEST_REAL_EMBEDDINGS=1` to let the test fetch it; CI does the second
 on one job. A MarkItDown, fastembed or onnxruntime bump lands only once
-`tests/test_knowledge_contract.py` and that test pass on it.
+`tests/test_knowledge_contract.py`, that test and `tests/test_no_telemetry.py`
+pass on it: the last holds onnxruntime to its telemetry switch.
 
 `bailey check` is tested on the fixture solution `tests/fixtures/grounded-replies`,
 shaped like the pilot, Customer email replies: its examples quote its samples, and

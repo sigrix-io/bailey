@@ -15,10 +15,10 @@ says a buyer does, with one difference: its own environment.
   app's folder on a loopback port of its own (:class:`AppHost`). ``PYTHONSAFEPATH`` keeps the pinned
   runtime serving rather than the copy a Sigrix bundle carries. Its environment is
   built here as the tool host builds a server's: the system's few defaults, the proxy and
-  certificate settings, the person's provider key and model, CrewAI's telemetry switched
-  off, and a token of Bailey's that the runner demands of every request. It never
-  receives ``SIGRIX_TOKEN`` or ``POSTERN_AGENT_ID``: without them the runner checks no
-  licence and looks for no update, so it reaches nothing but the provider.
+  certificate settings, the person's provider key and model, CrewAI's telemetry and
+  onnxruntime's switched off, and a token of Bailey's that the runner demands of every
+  request. It never receives ``SIGRIX_TOKEN`` or ``POSTERN_AGENT_ID``: without them the
+  runner checks no licence and looks for no update, so it reaches nothing but the provider.
 - **The page reaches it through Bailey** (``bailey.server``), which forwards the four
   verbs with that token, so the page's CSP stays ``connect-src 'self'``.
 """
@@ -40,6 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from bailey import NATIVE_TELEMETRY_OFF
 from bailey.settings import Connection
 from bailey.solutions import App
 from bailey.tools import NETWORK_VARIABLES
@@ -342,6 +343,8 @@ def runner_environment(
     env = {name: environ[name] for name in (*SYSTEM_VARIABLES, *NETWORK_VARIABLES) if environ.get(name)}
     env |= model_variables(connection, base_urls)
     env |= QUIET
+    # A crew's libraries may load onnxruntime, whose telemetry no audit hook sees (bailey.NATIVE_TELEMETRY_OFF).
+    env |= NATIVE_TELEMETRY_OFF
     env |= {
         # The pinned runtime serves, never the copy in the bundle's folder.
         "PYTHONSAFEPATH": "1",

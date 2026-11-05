@@ -202,6 +202,16 @@ def test_nothing_is_read_or_written_while_locked(path: Path) -> None:
     assert path.read_bytes() == before
 
 
+def test_with_no_passphrase_chosen_there_is_no_key_to_unlock(path: Path) -> None:
+    keys = EncryptedFileKeys(path)
+    assert keys.locked and not keys.has_passphrase
+    assert keys.get("provider/anthropic") is None, "no file, so no key in it"
+    keys.delete("provider/anthropic")  # and nothing to delete
+    with pytest.raises(KeysLocked):
+        keys.set("provider/anthropic", KEY)  # a key is kept only under a passphrase
+    assert not path.exists(), "nothing was written"
+
+
 def test_the_file_holds_no_key_and_no_passphrase_in_any_readable_form(path: Path) -> None:
     keys = EncryptedFileKeys(path)
     keys.create(PASSPHRASE)

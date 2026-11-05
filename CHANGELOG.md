@@ -6,6 +6,12 @@ described in `VERSIONING.md`.
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-11-05
+
+A fix release. Bailey sends no telemetry again, onnxruntime's included. An app opens from a
+relative `BAILEY_HOME`, asks for a locked key file's passphrase rather than failing, and runs on
+a server that needs no key before any passphrase is chosen.
+
 ### Added
 
 - `lessons/` records video lessons from the app itself: Bailey on a scripted model, driven in
@@ -44,6 +50,12 @@ described in `VERSIONING.md`.
 
 ### Fixed
 
+- Bailey sends no telemetry again, onnxruntime's included. onnxruntime 1.31, which document search
+  and MarkItDown's file detection run on, tries to reach Microsoft's telemetry collector from
+  native code once it has been loaded for about ten seconds, so Bailey 0.1.0 did, once it had
+  converted or searched a document. Bailey now sets `ORT_DISABLE_TELEMETRY=1` for itself and for
+  each app's runner before onnxruntime loads. The no-telemetry test, whose audit hook cannot see
+  native code, also gives the app a proxy that records every request, and checks the switch.
 - A retry is stored as a retry again. PydanticAI 2.63 split its retry part in two: a call the
   model must make again comes back as that call's result, marked `retried`, which Bailey stored
   as a successful result, and a retry that answers no call, as after a reply with nothing in it,
@@ -57,6 +69,10 @@ described in `VERSIONING.md`.
   from there: "The app's runner could not start: No such file or directory." The folder is now
   named in full where `BAILEY_HOME` is read, so every path made from it is too. Settings names
   the key file in full, and `bailey doctor` the data folder.
+- A provider that needs no key, such as a local server, chats and runs apps with no passphrase
+  chosen. Where keys go to the encrypted file, as in the `sigrix/bailey` image, Bailey asked for
+  the passphrase first, though nothing was kept under one: with no file there is no key, so
+  nothing to unlock. A key file that exists still asks for its passphrase.
 - While an answer streams, a tool call the model is to make again, as after an error from its
   tool server, says it was given another try. PydanticAI 2.63 reports such a call with a word of
   its own, `retried`, which the page did not know, so the call read as still running.
@@ -64,6 +80,9 @@ described in `VERSIONING.md`.
   "Unlock your keys with their passphrase first.", as chat does. The route that forwards an app's
   requests to its runner let the error through as a bare 500, which the page could only call "not
   JSON", whatever the provider; a keychain that refuses is said so there too.
+- A view opened from the menu while the page is still starting stays open. The menu shows before
+  the settings have loaded, and the page then opened Chat whatever had been chosen meanwhile;
+  clicking Assistants as the menu appeared landed on Chat every time.
 - A conversation in which the model once replied with only its thinking stops telling it, on every
   later message, that its previous response failed. Bailey does not store such a reply, but it kept
   PydanticAI's request for another try and sent that on beside the person's message, before the
