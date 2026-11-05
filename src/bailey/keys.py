@@ -13,7 +13,9 @@ local store, a log or a response, and goes nowhere but where it is used.
   AES-256-GCM encrypts the keys under it, so the file cannot be read, or changed
   unnoticed, without the passphrase. Bailey asks for it each time it starts, or reads
   ``BAILEY_PASSPHRASE``. A forgotten passphrase means starting over: the file is
-  deleted and the keys entered again.
+  deleted and the keys entered again. Until a passphrase is chosen there is no file and
+  no key in it, so a provider that needs none runs without one (the owner's decision,
+  2026-11-05); a file that exists stays locked until its passphrase is given.
 
 ``BAILEY_KEYS=file`` uses the file even where there is a keychain.
 """
@@ -275,6 +277,8 @@ class EncryptedFileKeys:
         self.path.unlink(missing_ok=True)
 
     def get(self, name: str) -> str | None:
+        if self._none_chosen():
+            return None
         self._require_unlocked()
         return self._secrets.get(name)
 
@@ -282,6 +286,8 @@ class EncryptedFileKeys:
         self._replace({**self._secrets, name: value})
 
     def delete(self, name: str) -> None:
+        if self._none_chosen():
+            return
         self._require_unlocked()
         if name in self._secrets:
             self._replace({stored: value for stored, value in self._secrets.items() if stored != name})
@@ -292,6 +298,15 @@ class EncryptedFileKeys:
         key = self._require_unlocked()
         self._write(key, self._salt, self._cost, secrets)
         self._secrets = secrets
+
+    def _none_chosen(self) -> bool:
+        """No passphrase chosen, so no file, and no key in it: nothing to unlock before a read or a delete.
+
+        A provider that needs no key, such as a local server, then runs without one. A file that
+        exists and is locked still asks for its passphrase, since it may hold that server's key.
+        """
+
+        return self._key is None and not self.has_passphrase
 
     def _require_unlocked(self) -> bytes:
         if self._key is None:
