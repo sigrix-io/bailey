@@ -42,6 +42,12 @@ described in `VERSIONING.md`.
 
 ### Fixed
 
+- Bailey sends no telemetry again, onnxruntime's included. onnxruntime 1.31, which document search
+  and MarkItDown's file detection run on, tries to reach Microsoft's telemetry collector from
+  native code once it has been loaded for about ten seconds, so Bailey 0.1.0 did, once it had
+  converted or searched a document. Bailey now sets `ORT_DISABLE_TELEMETRY=1` for itself and for
+  each app's runner before onnxruntime loads. The no-telemetry test, whose audit hook cannot see
+  native code, also gives the app a proxy that records every request, and checks the switch.
 - A retry is stored as a retry again. PydanticAI 2.63 split its retry part in two: a call the
   model must make again comes back as that call's result, marked `retried`, which Bailey stored
   as a successful result, and a retry that answers no call, as after a reply with nothing in it,

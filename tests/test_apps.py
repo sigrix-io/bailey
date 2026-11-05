@@ -33,6 +33,7 @@ from fakes import FakeKeychain, UnreadableKeychain
 from running import Running
 from starlette.testclient import TestClient
 
+from bailey import NATIVE_TELEMETRY_OFF
 from bailey.apps import QUIET, RUNTIME_REQUIREMENT, app_folder, requirements_of, runner_environment
 from bailey.keys import FILE_NAME, EncryptedFileKeys, KeychainKeys
 from bailey.server import AppState, build_app
@@ -381,6 +382,7 @@ def test_the_runner_sees_the_persons_key_and_none_of_baileys_own_settings() -> N
     for absent in ("SIGRIX_TOKEN", "POSTERN_AGENT_ID", "ANTHROPIC_API_KEY", "BAILEY_PASSPHRASE"):
         assert absent not in env, f"{absent} reached the runner"
     assert QUIET.items() <= env.items()
+    assert NATIVE_TELEMETRY_OFF.items() <= env.items(), "a crew's onnxruntime sends no telemetry either"
 
 
 def test_crewais_telemetry_switches_are_the_runtimes_own() -> None:
