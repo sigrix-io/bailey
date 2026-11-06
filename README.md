@@ -47,6 +47,15 @@ uvx bailey
 
 It starts on this computer's own address and opens in your browser. `pipx run bailey` works as well, or `pip install bailey` and then `bailey`; each needs Python 3.11 or newer, and `uvx` comes with [uv](https://docs.astral.sh/uv/). The address it prints carries this session's token, which changes each time Bailey starts, so a page that is not Bailey's cannot talk to it.
 
+`uvx`, `pipx` and `pip` install Bailey on these computers:
+
+- Linux with glibc 2.28 or newer, on an Intel or AMD chip
+- Linux with glibc 2.28 or newer, on an ARM chip
+- Windows on an Intel or AMD chip
+- A Mac with an Apple chip, on macOS 14 or newer
+
+On any other computer, use Docker, below. That means an Intel Mac, a Mac on macOS 13 or older, and Linux on musl, such as Alpine, where onnxruntime, which runs Bailey's search model, is not built: there the installer either refuses, naming onnxruntime, or installs Bailey's first release instead, which prints `usage: bailey [-h] [--version] {doctor} ...` and starts no app. It also means Windows on an ARM chip, where the installer would build packages such as `cryptography` from source, which needs a Rust toolchain. `scripts/check_wheels.py` holds this list to what an installer finds on each computer.
+
 Or with Docker, which also brings what a solution's tools need, Node.js and uv, and the search model:
 
 ```sh

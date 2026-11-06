@@ -10,8 +10,23 @@ described in `VERSIONING.md`.
 
 - The four lessons are on YouTube, and each page names its video, so the next pack and import
   link the lesson's page on sigrix.io to it.
+- `scripts/check_wheels.py` checks what `uvx`, `pipx` and `pip` find on each computer the
+  README names. It resolves each one as an installer does, newest versions and source downloads
+  allowed, then with wheels only, held to the same versions. It fails when a computer the README
+  covers would install nothing or build something from source, and when one it sends to Docker
+  starts to install. CI runs it, the release runs it before uploading anything, and the release's
+  post-publish check now runs on a Mac as well as on Linux.
 
 ### Changed
+
+- The package says which computers it installs on. Its classifiers name macOS, Windows and Linux
+  rather than "OS Independent". The README lists the computers `uvx`, `pipx` and `pip` cover:
+  Linux with glibc 2.28 or newer on an Intel, AMD or ARM chip, Windows on an Intel or AMD chip,
+  and a Mac with an Apple chip on macOS 14 or newer. Every other computer uses the Docker image.
+  Nothing changes for anyone running 0.1.0 or 0.1.1. Those releases pin onnxruntime as this one
+  does, and it has no build for an Intel Mac or a Mac on macOS 13 or older, so neither release
+  ever ran there. On such a Mac an installer installed 0.0.1, the doctor-only first release,
+  without an error. Once 0.0.1 is yanked, the installer refuses instead, naming onnxruntime.
 
 - Nothing here names the Sigrix platform's private code any more. The docstrings, comments and
   docs that cited its issues, linked into its repository or named its modules say what they meant
