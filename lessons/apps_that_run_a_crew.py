@@ -1,6 +1,6 @@
 """Lesson 3, apps that run a crew: a solution's app, its environment set up once, and a run of its crew.
 
-    python lessons/apps_that_run_a_crew.py [--out lessons/out]
+    pageant record lessons/apps_that_run_a_crew.py [--out lessons/out]
 
 It installs ``solutions/harbour-weekly-digest``, lesson 1's bookshop again, whose app is a
 crew of two: one agent picks the week's highlights, the other writes the newsletter. The
@@ -11,13 +11,13 @@ in every lesson; wherever the lesson is published it says so.
 
 from __future__ import annotations
 
-import sys
 import zipfile
 from pathlib import Path
 
 import pages
+import scripted_bailey
+from pageant.studio import Lesson, Studio
 from playwright.async_api import Locator
-from studio import Lesson, Studio, main, provider_chosen
 
 HERE = Path(__file__).resolve().parent
 SOLUTION = HERE / "solutions" / "harbour-weekly-digest"
@@ -172,11 +172,8 @@ LESSON = Lesson(
         "sub": "A solution's app, set up once, and a run of its crew.",
     },
     narration=NARRATION,
-    replies=REPLIES,
     run=run,
-    setup=provider_chosen,
-    app_task_seconds=3.0,
+    app=scripted_bailey.app(REPLIES, app_task_seconds=3.0),
+    mark=scripted_bailey.mark(),
+    setup=scripted_bailey.provider_chosen,
 )
-
-if __name__ == "__main__":
-    sys.exit(main(LESSON))

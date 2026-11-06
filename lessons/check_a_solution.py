@@ -1,6 +1,6 @@
 """Lesson 4, check a solution: ``bailey doctor`` and ``bailey check``, from a terminal.
 
-    python lessons/check_a_solution.py [--out lessons/out]
+    pageant record lessons/check_a_solution.py [--out lessons/out]
 
 It films the terminal (``terminal.html``), where each command is typed and then really run:
 ``bailey`` is Bailey's own command line, put on the terminal's PATH pointed at the scripted
@@ -15,12 +15,12 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
-import sys
 from pathlib import Path
 
 import pages
+import scripted_bailey
+from pageant.studio import Lesson, Studio
 from playwright.async_api import Locator
-from studio import Lesson, Studio, main, provider_chosen
 
 HERE = Path(__file__).resolve().parent
 SOLUTION = HERE.parent / "tests" / "fixtures" / "grounded-replies"
@@ -76,7 +76,7 @@ def lay_out(work: Path) -> None:
 
 
 async def setup(s: Studio) -> None:
-    await provider_chosen(s)
+    await scripted_bailey.provider_chosen(s)
     lay_out(s.work)
     await s.terminal("bailey — ~/shop", "~/shop")
 
@@ -148,11 +148,9 @@ LESSON = Lesson(
         "sub": "bailey doctor and bailey check, from your terminal.",
     },
     narration=NARRATION,
-    replies=REPLIES,
     run=run,
+    app=scripted_bailey.app(REPLIES),
+    mark=scripted_bailey.mark(),
     setup=setup,
     commands={"bailey": (HERE / "scripted_bailey.py", "--cli")},
 )
-
-if __name__ == "__main__":
-    sys.exit(main(LESSON))

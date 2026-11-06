@@ -46,6 +46,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Lint
         run: ruff check . && ruff format --check .
+      # The lessons are recorded with Pageant, pinned in lessons/requirements.txt, and their
+      # pages are written on its core, which is the standard library's: that much is installed
+      # for the lessons' tests, and the record extra (a browser, the voice) is not.
+      - name: The lessons' recorder, without its record extra
+        run: python -m pip install --no-deps -r lessons/requirements.txt
       - name: Test
         run: pytest -q
       - name: The console script answers

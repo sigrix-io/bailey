@@ -1,6 +1,6 @@
 """Lesson 2, tools that ask before they act: a solution's tool server, a read, a write that asks, and taking an "always" back.
 
-    python lessons/tools_that_ask.py [--out lessons/out]
+    pageant record lessons/tools_that_ask.py [--out lessons/out]
 
 It installs ``solutions/harbour-mail-desk``, an assistant for lesson 1's bookshop that works
 in its mailbox through one tool server: ``search_mail`` only reads, and ``save_draft``
@@ -12,13 +12,13 @@ model's answers are scripted, and wherever the lesson is published it says so.
 from __future__ import annotations
 
 import re
-import sys
 import zipfile
 from pathlib import Path
 
 import pages
+import scripted_bailey
+from pageant.studio import Lesson, Studio
 from playwright.async_api import Locator
-from studio import Lesson, Studio, main, provider_chosen
 
 HERE = Path(__file__).resolve().parent
 SOLUTION = HERE / "solutions" / "harbour-mail-desk"
@@ -226,11 +226,9 @@ LESSON = Lesson(
         "sub": "What a solution's tools may do, which ask first, and how you answer.",
     },
     narration=NARRATION,
-    replies=REPLIES,
     run=run,
-    setup=provider_chosen,
+    app=scripted_bailey.app(REPLIES),
+    mark=scripted_bailey.mark(),
+    setup=scripted_bailey.provider_chosen,
     commands={"harbour-mail": (HERE / "harbour_mail.py",)},
 )
-
-if __name__ == "__main__":
-    sys.exit(main(LESSON))

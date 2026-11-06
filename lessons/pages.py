@@ -1,19 +1,28 @@
-"""Each lesson's page on sigrix.io/learn, and the learning path that lists them.
+"""Each lesson's page on sigrix.io/learn, the learning path that lists them, and what their YouTube descriptions end with.
 
 A lesson's file names its page (``Lesson(page=...)``), so the folder it records into and the page it
-becomes are written once, here. ``pack.py`` zips the recorded lessons with these pages, and Sigrix's
-Learn console imports the pack (``bundle.py``); ``youtube.py`` writes each one's YouTube upload from
-it. An import matches a lesson by its ``slug``, so a lesson already on the site is updated in place:
-change a slug and it is a new page. Each page says what in its lesson is scripted or a stand-in, as a
-lesson says wherever it is published.
+becomes are written once, here. ``pageant pack lessons/pages.py`` zips the recorded lessons with
+these pages, and Sigrix's Learn console imports the pack; ``pageant youtube-text lessons/pages.py``
+writes each one's YouTube upload from its page and ``PRODUCT``. An import matches a lesson by its
+``slug``, so a lesson already on the site is updated in place: change a slug and it is a new page.
+Each page says what in its lesson is scripted or a stand-in, as a lesson says wherever it is
+published. Nothing here needs more than Pageant's core, which is the standard library's.
 """
 
 from __future__ import annotations
 
-from bundle import LearningPath, Page
+from pageant.bundle import DEFAULT_SITE, LearningPath, Page
+from pageant.youtube import Product
+
+#: Sigrix's Learn lists the lessons by this tag (``/learn/tag/bailey``), and its ``/open-source/bailey``
+#: page shows the learning paths of the lessons that carry it: a page without it is on neither.
+TAG = "bailey"
+#: Every page's tags.
+TAGS = (TAG, "video")
 
 FIRST_SOLUTION = Page(
     folder="bailey-lesson-01-first-solution",
+    tags=TAGS,
     slug="bailey-lesson-1-your-first-solution",
     youtube_url="https://www.youtube.com/watch?v=OWB-Dw8namc",
     title="Bailey lesson 1: your first solution",
@@ -35,6 +44,7 @@ FIRST_SOLUTION = Page(
 
 TOOLS_THAT_ASK = Page(
     folder="bailey-lesson-02-tools-that-ask",
+    tags=TAGS,
     slug="bailey-lesson-2-tools-that-ask-before-they-act",
     youtube_url="https://www.youtube.com/watch?v=a6gthLlTU5Q",
     title="Bailey lesson 2: tools that ask before they act",
@@ -55,6 +65,7 @@ TOOLS_THAT_ASK = Page(
 
 APPS_THAT_RUN_A_CREW = Page(
     folder="bailey-lesson-03-apps-that-run-a-crew",
+    tags=TAGS,
     slug="bailey-lesson-3-apps-that-run-a-crew",
     youtube_url="https://www.youtube.com/watch?v=c5B9m8V6amU",
     title="Bailey lesson 3: apps that run a crew",
@@ -74,6 +85,7 @@ APPS_THAT_RUN_A_CREW = Page(
 
 CHECK_A_SOLUTION = Page(
     folder="bailey-lesson-04-check-a-solution",
+    tags=TAGS,
     slug="bailey-lesson-4-check-a-solution",
     youtube_url="https://www.youtube.com/watch?v=4qbF348Y3DY",
     title="Bailey lesson 4: check a solution",
@@ -98,4 +110,16 @@ PATH = LearningPath(
         "Four short videos: your first solution, tools that ask, apps that run a crew, and checking a solution."
     ),
     lessons=(FIRST_SOLUTION, TOOLS_THAT_ASK, APPS_THAT_RUN_A_CREW, CHECK_A_SOLUTION),
+)
+
+PRODUCT = Product(
+    name="Bailey",
+    about=(
+        "Bailey is an open-source AI assistant that runs ready-made solutions on your own machine, with your own AI key."
+    ),
+    link=f"{DEFAULT_SITE}/open-source/bailey",
+    all_lessons=f"{DEFAULT_SITE}/learn/tag/{TAG}",
+    # What every lesson says wherever it is published (lessons/README.md); its page says the rest.
+    scripted="Filmed in Bailey itself, on a scripted model: the AI's answers are written in advance.",
+    tags=("Bailey", "Sigrix", "AI assistant", "open source AI", "local AI", "AI agents", "tutorial"),
 )

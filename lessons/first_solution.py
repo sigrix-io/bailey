@@ -1,6 +1,6 @@
 """Lesson 1, your first solution: choose an AI, install a solution from a file, give it documents and a job.
 
-    python lessons/first_solution.py [--out lessons/out]
+    pageant record lessons/first_solution.py [--out lessons/out]
 
 It installs the bookshop solution from Bailey's own tests (``tests/fixtures/grounded-replies``),
 zipped as a download is, and gives it the first of that solution's own examples to answer.
@@ -11,13 +11,13 @@ model writes, and wherever it is published it says so.
 from __future__ import annotations
 
 import re
-import sys
 import zipfile
 from pathlib import Path
 
 import pages
+import scripted_bailey
+from pageant.studio import Lesson, Studio
 from playwright.async_api import Locator
-from studio import Lesson, Studio, main
 
 REPO = Path(__file__).resolve().parents[1]
 SOLUTION = REPO / "tests" / "fixtures" / "grounded-replies"
@@ -226,9 +226,7 @@ LESSON = Lesson(
         "sub": "Choose your AI, install a solution, and give it a real job.",
     },
     narration=NARRATION,
-    replies=REPLIES,
     run=run,
+    app=scripted_bailey.app(REPLIES),
+    mark=scripted_bailey.mark(),
 )
-
-if __name__ == "__main__":
-    sys.exit(main(LESSON))
