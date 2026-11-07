@@ -8,12 +8,11 @@ described in `VERSIONING.md`.
 
 ### Added
 
-- `scripts/stop_soak.py` starts Bailey and stops it at once, a few hundred times, and counts the
-  stops that do not end within 30 seconds. Every other stop comes at the ready line, and the
-  rest at a random moment in the three seconds after it, while the agent core can still be
-  loading. `stop-soak.yml` runs it by hand on a macOS or a Linux runner, and on a pull request
-  that changes it. Once, on a macOS runner, a Bailey under test had not exited 30 seconds after
-  it was told to stop, and the cause is not known.
+- `scripts/stop_soak.py` starts Bailey and stops it at once, a few hundred times, and fails on a
+  stop that does not end cleanly within 30 seconds. A third of the stops come at the ready line,
+  a third in the 50 milliseconds after it, and a third in the three seconds after it, while the
+  agent core can still be loading. `stop-soak.yml` runs it by hand on a macOS or a Linux runner,
+  and on a pull request that changes it.
 
 ### Changed
 
@@ -21,6 +20,17 @@ described in `VERSIONING.md`.
   stack of every thread in it, which `faulthandler` writes when the test sends it SIGABRT, and
   ends it, so no Bailey is left running after the test. The soak also prints each thread's
   native stack, with `sample`, where the computer has it.
+
+### Fixed
+
+- A stop no longer leaves Bailey running. Its own handler for the terminate signal, and Python's
+  for Ctrl+C until uvicorn's took over, raised an exception wherever the main thread was. One
+  that landed inside a weakref callback was reported and dropped there, so the stop was lost.
+  When that callback was importlib's own, its lock stayed held, and the background load of the
+  agent core waited on it for ever while Bailey went on serving. One handler for both signals
+  now asks the server to shut down, as uvicorn's own does. It is in place before Bailey says it
+  is running, so a stop that comes the moment it does closes the store too, rather than the
+  signal ending the process where it stands.
 
 ## [0.1.2] — 2026-11-07
 

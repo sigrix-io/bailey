@@ -16,7 +16,9 @@ import re
 import signal
 import socket
 import sqlite3
+import subprocess
 import sys
+import textwrap
 import time
 from pathlib import Path
 
@@ -111,6 +113,81 @@ def test_a_stop_signal_closes_the_store_and_exits_cleanly(tmp_path: Path, stop: 
     assert "Bailey has stopped." in printed
     assert "Traceback" not in printed
     assert not (home / "bailey.db-wal").exists(), "the store was closed, its log folded back in"
+
+
+#: ``python -m bailey --no-browser``, with one terminate signal sent from inside the process at
+#: the moment named by its first argument, so a test lands it in the same place on every run.
+#: ``callback``: inside a weakref callback, as ``server.run()`` begins, where Bailey's handler is
+#: in place and uvicorn's not yet; once, on a macOS runner, a stop landed in importlib's own such
+#: callback and was lost. ``ready``: the moment the ready line is flushed.
+STOP_AT = textwrap.dedent(
+    """
+    import runpy, signal, sys, weakref
+
+    import uvicorn
+
+    moment = sys.argv.pop(1)
+
+    if moment == "callback":
+        run = uvicorn.Server.run
+
+        def run_after_a_stop_in_a_callback(self, *args, **kwargs):
+            class Kept:
+                pass
+
+            kept = Kept()
+            reference = weakref.ref(kept, lambda _: signal.raise_signal(signal.SIGTERM))
+            del kept
+            return run(self, *args, **kwargs)
+
+        uvicorn.Server.run = run_after_a_stop_in_a_callback
+    else:
+
+        class StopOnceReady:
+            def __init__(self, stream):
+                self.stream, self.ready, self.sent = stream, False, False
+
+            def write(self, text):
+                self.ready = self.ready or "Press Ctrl+C to stop." in text
+                return self.stream.write(text)
+
+            def flush(self):
+                self.stream.flush()
+                if self.ready and not self.sent:
+                    self.sent = True
+                    signal.raise_signal(signal.SIGTERM)
+
+            def __getattr__(self, name):
+                return getattr(self.stream, name)
+
+        sys.stdout = StopOnceReady(sys.stdout)
+
+    sys.argv = ["bailey", "--no-browser"]
+    runpy.run_module("bailey", run_name="__main__", alter_sys=True)
+    """
+)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="Windows ends a process without a signal it can answer")
+@pytest.mark.parametrize("moment", ["callback", "ready"])
+def test_a_stop_at_any_moment_after_the_ready_line_shuts_bailey_down(tmp_path: Path, moment: str) -> None:
+    """Neither a stop inside a weakref callback nor one the moment Bailey says it is running is lost.
+
+    A handler that raised was swallowed inside the callback, and Bailey served on; one installed
+    after the ready line was not there yet, and the signal ended the process where it stood.
+    """
+
+    bailey = Running(tmp_path / "home", command=[sys.executable, "-c", STOP_AT, moment])
+    # The stop was sent from inside; nothing more is sent before it has ended, or was lost.
+    try:
+        ended: int | None = bailey.process.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        ended = None
+    code, printed = bailey.stop()  # ends a Bailey still running either way, so none is left behind
+    assert ended == 0, f"the stop ended it with {ended} (None: lost, and it served on): {''.join(bailey.lines)}"
+    assert "Bailey has stopped." in printed
+    assert "Exception ignored" not in "".join(bailey.lines)
+    assert "Traceback" not in "".join(bailey.lines)
 
 
 def test_a_wrong_bailey_passphrase_stops_it_with_a_sentence(tmp_path: Path) -> None:
