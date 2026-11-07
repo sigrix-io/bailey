@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bailey"
-version = "0.1.1"
+version = "0.1.2"
 description = "An open-source AI assistant that runs ready-made solutions on your own machine, with your own AI key. This first release ships `bailey doctor`."
 readme = "README.md"
 license = "Apache-2.0"
