@@ -23,7 +23,10 @@ is looked at first with ``sample`` where the computer has it (macOS: the native 
 thread, which ``faulthandler`` cannot see), then made to write its Python threads' stacks and
 ended, and the soak goes on. CI runs it from ``.github/workflows/stop-soak.yml``.
 
-Exit codes: 0, every stop ended in time; 1, at least one did not, with its stacks printed.
+A stop that ends any other way than those two is printed whole, with what Bailey printed.
+
+Exit codes: 0, every stop ended in time and in one of the two ways; 1, at least one did not,
+printed above.
 """
 
 from __future__ import annotations
@@ -69,12 +72,14 @@ def look_at(pid: int) -> None:
 
 
 def soak(times: int, *, seed: int) -> int:
-    """Start and stop Bailey ``times`` times. The exit code: 1 when any stop or start was stuck."""
+    """Start and stop Bailey ``times`` times. The exit code: 1 when any stop or start was stuck,
+    or a stop ended another way than cleanly or by the signal's default action."""
 
     chooser = random.Random(seed)  # noqa: S311 -- when to stop, not a secret
     endings: collections.Counter[str] = collections.Counter()
     slowest, slowest_stop = 0.0, 0
     stuck: list[int] = []
+    unexpected: list[int] = []
     with tempfile.TemporaryDirectory() as scratch:
         for number in range(1, times + 1):
             delay = 0.0 if number % 2 else chooser.uniform(0, LATE_WINDOW)
@@ -96,6 +101,13 @@ def soak(times: int, *, seed: int) -> int:
             if took > slowest:
                 slowest, slowest_stop = took, number
             endings[ENDINGS.get(code, f"exit {code}")] += 1
+            if code not in ENDINGS:
+                unexpected.append(number)
+                print(
+                    f"Stop {number}, {delay:.2f}s after the ready line, ended with exit status {code}. "
+                    f"What it printed:\n{''.join(bailey.lines)}",
+                    flush=True,
+                )
             if number % 25 == 0:
                 print(f"{number} of {times} stopped; the slowest took {slowest:.2f}s", flush=True)
     print(
@@ -105,8 +117,11 @@ def soak(times: int, *, seed: int) -> int:
     )
     for ending, count in endings.most_common():
         print(f"  {count} {ending}")
+    if unexpected:
+        print(f"  Stops that ended another way, printed above: {unexpected}")
     if stuck:
         print(f"  {len(stuck)} still running {STOP_TIMEOUT:g}s after they were told to stop: {stuck}")
+    if stuck or unexpected:
         return 1
     print(f"Every stop ended in time; the slowest, stop {slowest_stop}, took {slowest:.2f}s.")
     return 0
