@@ -6,6 +6,12 @@ described in `VERSIONING.md`.
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-11-07
+
+A release that changes nothing in the app. The package now says which computers `uvx`, `pipx`
+and `pip` install it on, in its README and its classifiers, and sends every other computer to
+the Docker image, and every release checks those computers before it uploads anything.
+
 ### Added
 
 - The four lessons are on YouTube, and each page names its video, so the next pack and import
