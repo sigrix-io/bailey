@@ -38,10 +38,10 @@ git tag v0.1.0 && git push origin v0.1.0
 ```
 
 Allow up to twenty minutes after the upload before expecting `uvx bailey` to
-resolve the new version. PyPI's CDN caches the index page for ten minutes, and
-on 0.1.3's release one runner was handed the page from before the upload for
-more than ten, while the other installed the new version at once. That is the
-index's cache, not a failed publish. The release's `verify` job waits it out,
+resolve the new version. PyPI lets its index page be cached for ten minutes
+(`max-age=600`), and on 0.1.3's release one runner was handed the page from
+before the upload for more than ten, while the other installed the new
+version at once. That is the index's cache, not a failed publish. The release's `verify` job waits it out,
 for up to twenty minutes, installs the new version from PyPI by name, and fails
 the run if that never arrives, reports another version, lacks `py.typed`, or
 its `bailey` command does not answer with that version. It does so on a Mac

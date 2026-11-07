@@ -9,7 +9,7 @@ described in `VERSIONING.md`.
 ### Changed
 
 - The release waits up to twenty minutes, not ten, for PyPI's index to serve the version it
-  uploaded, twice the ten minutes the index's CDN caches it for. On 0.1.3's release one runner
+  uploaded, twice the ten minutes PyPI lets the index be cached for. On 0.1.3's release one runner
   was handed the index from before the upload for all ten, so the run failed with the version
   published, and the image, which waits for a run that succeeds, was built only once the failed
   job had run again.

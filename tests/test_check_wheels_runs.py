@@ -7,7 +7,7 @@ The check is only worth its list while something runs it. These read the workflo
 - the release's build job runs the same check before it uploads anything, since a version on PyPI can
   never be reused, and a dependency can drop a computer between a merge and a tag;
 - the release's post-publish job runs on a Mac with an Apple chip as well as on Linux, and waits for the
-  index to serve the new version for twice as long as the index's CDN caches it.
+  index to serve the new version for twice as long as PyPI lets the index be cached.
 
 This checks the repository rather than the package, so the sdist, which carries no workflows and no
 Dockerfile, leaves it out (``pyproject.toml``).
@@ -24,7 +24,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 CHECK = "python scripts/check_wheels.py"
-#: How long PyPI's CDN may hand out a project's index page: ``Cache-Control: max-age=600`` on
+#: How long PyPI lets a project's index page be cached: ``Cache-Control: max-age=600`` on
 #: ``/simple/<name>/``, as PyPI served it on 2026-11-07.
 INDEX_CACHE_SECONDS = 600
 #: uv at the image's pin, read from the Dockerfile so that there is one spelling of it.

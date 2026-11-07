@@ -104,7 +104,7 @@ jobs:
 
       # Waits out the index, installs that exact version, and checks it is that
       # version, from site-packages, carrying py.typed. It waits up to twenty minutes,
-      # twice the ten PyPI's CDN caches the index page for (`max-age=600`). On 0.1.3's
+      # twice the ten PyPI lets its index page be cached for (`max-age=600`). On 0.1.3's
       # release the Linux runner was handed the page from before the upload for all of
       # the action's default ten (40 attempts, 15 seconds apart), and the run failed
       # with the version published and installed on the Mac. A prompt index ends the
