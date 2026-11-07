@@ -37,16 +37,21 @@ version's section in `CHANGELOG.md` the day the tag goes out. Then:
 git tag v0.1.0 && git push origin v0.1.0
 ```
 
-Allow about ten minutes after the upload before expecting `uvx bailey` to
-resolve the new version: that is the index CDN's cache, not a failed publish.
-The release's `verify` job waits it out, installs the new version from PyPI by
-name, and fails the run if that never arrives, reports another version, lacks
-`py.typed`, or its `bailey` command does not answer with that version. It
-does so on a Mac with an Apple chip as well as on Linux. The build job runs the
-same checks against the wheel before the upload, because a version on PyPI can
-never be reused. It also runs `scripts/check_wheels.py` there, against the
-index as it is that day, since a dependency can drop a computer the README
-lists between the merge and the tag.
+Allow up to twenty minutes after the upload before expecting `uvx bailey` to
+resolve the new version. PyPI lets its index page be cached for ten minutes
+(`max-age=600`), and on 0.1.3's release one runner was handed the page from
+before the upload for more than ten, while the other installed the new
+version at once. That is the index's cache, not a failed publish. The release's `verify` job waits it out,
+for up to twenty minutes, installs the new version from PyPI by name, and fails
+the run if that never arrives, reports another version, lacks `py.typed`, or
+its `bailey` command does not answer with that version. It does so on a Mac
+with an Apple chip as well as on Linux. If it fails anyway, look for the
+version on the project page: once it is there, re-run the failed jobs, and the
+image follows when the run succeeds. Never tag the version again; PyPI has
+spent it either way. The build job runs the same checks against the wheel
+before the upload, because a version on PyPI can never be reused. It also runs
+`scripts/check_wheels.py` there, against the index as it is that day, since a
+dependency can drop a computer the README lists between the merge and the tag.
 
 ### The image
 

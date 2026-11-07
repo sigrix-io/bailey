@@ -6,6 +6,14 @@ described in `VERSIONING.md`.
 
 ## [Unreleased]
 
+### Changed
+
+- The release waits up to twenty minutes, not ten, for PyPI's index to serve the version it
+  uploaded, twice the ten minutes PyPI lets the index be cached for. On 0.1.3's release one runner
+  was handed the index from before the upload for all ten, so the run failed with the version
+  published, and the image, which waits for a run that succeeds, was built only once the failed
+  job had run again.
+
 ## [0.1.3] — 2026-11-07
 
 A fix release. Ctrl+C or a terminate signal that came at the wrong moment could be lost, and
