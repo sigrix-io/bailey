@@ -39,6 +39,16 @@ described in `VERSIONING.md`.
   for Bailey), the stand-in tool server and the solutions. Recorded again with it, every lesson's
   page and cover are byte for byte the published ones, and its captions and chapters say the same
   things in the same order, within the second or so a recording moves from one run to the next.
+- The lessons' tests hold every page, and the learning path, to the lesson format's JSON Schemas
+  as Pageant ships them (`pageant.schema`), rather than to a copy of the import's rules kept in
+  `tests/test_lesson_pages.py`, which could drift from them without failing. The schemas are
+  stricter than the copy: a page has at most eight tags, each lowercase words joined by hyphens,
+  at most 32 characters and listed once; its body is at most 16,384 characters; its YouTube link
+  is a watch address or a `youtu.be` one; and the path, which the copy did not cover, lists one to
+  twelve lessons, under a title of at most 120 characters, an audience of at most 60 and a
+  description of at most 280. The four pages and their path already fit. `lessons/requirements.txt`
+  pins Pageant at a commit that ships the schemas, where `pageant record` refuses a page the import
+  would refuse, and `pageant pack` a page or the path, each with every reason.
 
 ## [0.1.1] — 2026-11-05
 

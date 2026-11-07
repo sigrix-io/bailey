@@ -141,6 +141,12 @@ Bailey's own page on sigrix.io, and says what in its lesson is scripted or a sta
 is on YouTube, its page's `youtube_url` is the video's address: the next pack and import link the
 page to it.
 
+What a page and the path may hold is written down in Pageant's
+[`SPEC.md`](https://github.com/sigrix-io/pageant/blob/main/SPEC.md), with a JSON Schema for each.
+`pageant record` refuses a page the import would refuse before anything is filmed, and
+`pageant pack` a page or the path before anything is zipped, each with every reason.
+`tests/test_lesson_pages.py` holds every page and the path to those schemas.
+
 ## Publishing on YouTube
 
 ```sh
