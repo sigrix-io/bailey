@@ -12,7 +12,7 @@ makes no network call.
 
 import os as _os
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 #: The switches that turn off the telemetry a library Bailey loads sends from native code, where no
 #: Python audit hook sees it. They are set here, before anything imports such a library, and handed
