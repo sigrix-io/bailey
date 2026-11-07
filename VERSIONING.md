@@ -41,9 +41,12 @@ Allow about ten minutes after the upload before expecting `uvx bailey` to
 resolve the new version: that is the index CDN's cache, not a failed publish.
 The release's `verify` job waits it out, installs the new version from PyPI by
 name, and fails the run if that never arrives, reports another version, lacks
-`py.typed`, or its `bailey` command does not answer with that version. The
-build job runs the same checks against the wheel before the upload, because a
-version on PyPI can never be reused.
+`py.typed`, or its `bailey` command does not answer with that version. It
+does so on a Mac with an Apple chip as well as on Linux. The build job runs the
+same checks against the wheel before the upload, because a version on PyPI can
+never be reused. It also runs `scripts/check_wheels.py` there, against the
+index as it is that day, since a dependency can drop a computer the README
+lists between the merge and the tag.
 
 ### The image
 

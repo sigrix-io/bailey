@@ -96,6 +96,15 @@ on one job. A MarkItDown, fastembed or onnxruntime bump lands only once
 `tests/test_knowledge_contract.py`, that test and `tests/test_no_telemetry.py`
 pass on it: the last holds onnxruntime to its telemetry switch.
 
+Any dependency change also lands only once `scripts/check_wheels.py` passes,
+which CI's `wheels` job runs. It resolves each computer the README names, as an
+installer does and then with wheels only, so it fails on a change that leaves a
+covered computer with nothing to install or with something to build from
+source. Such a change either moves that computer to the README's Docker sentence
+and to the script's `SENT_TO_DOCKER`, or waits for a build. It also fails once a
+computer the README sends to Docker starts to install, so the README says so the
+same day.
+
 `bailey check` is tested on the fixture solution `tests/fixtures/grounded-replies`,
 shaped like the pilot, Customer email replies: its examples quote its samples, and
 a skill of its own grounds them. The emulator's replay model (`REPLAYS`) gives each

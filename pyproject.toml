@@ -16,7 +16,11 @@ classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
-    "Operating System :: OS Independent",
+    # Not "OS Independent": the wheel is pure Python, but onnxruntime, which it pins, is built only for
+    # the computers the README lists, and scripts/check_wheels.py holds that list to the index.
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -89,10 +93,17 @@ packages = ["src/bailey"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/bailey", "schemas", "tests", "scripts", "README.md", "LICENSE", "NOTICE", "CHANGELOG.md"]
-# The pin guard reads .github/workflows, and the lessons' tests read lessons/; the
-# sdist carries neither, since both check the repository, not the package. lessons/
-# is a maintainer's tool, left out by name because "README.md" matches at any depth.
-exclude = ["tests/test_workflow_pins.py", "tests/test_lessons.py", "tests/test_lesson_pages.py", "lessons"]
+# The pin guard and the wheel check's wiring read .github/workflows (and the Dockerfile),
+# and the lessons' tests read lessons/; the sdist carries none of them, since they check
+# the repository, not the package. lessons/ is a maintainer's tool, left out by name
+# because "README.md" matches at any depth.
+exclude = [
+    "tests/test_workflow_pins.py",
+    "tests/test_check_wheels_runs.py",
+    "tests/test_lessons.py",
+    "tests/test_lesson_pages.py",
+    "lessons",
+]
 
 [tool.ruff]
 line-length = 120
