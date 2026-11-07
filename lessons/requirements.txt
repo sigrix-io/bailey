@@ -4,6 +4,9 @@
 #   playwright install chromium
 #
 # and ffmpeg on the PATH. The recorder is Pageant (sigrix-io/pageant), with its record extra:
-# Playwright and the voice, at the versions it pins. Pinned at the commit these lessons were
-# last recorded with, until Pageant's first release is on PyPI.
-pageant[record] @ git+https://github.com/sigrix-io/pageant.git@25ec7abfdd633dd9be380acfa26265222a6a5d47
+# Playwright and the voice, at the versions it pins. Pinned at a commit of its main until its
+# first release is on PyPI: one that ships the lesson format's schemas, which the lessons' pages
+# and their path are held to (tests/test_lesson_pages.py). The lessons were last recorded with an
+# earlier commit, and this one records them the same way: its recorder and its record extra's
+# versions are unchanged.
+pageant[record] @ git+https://github.com/sigrix-io/pageant.git@ce1099071da986f0808ebaba00d4180be26143f9

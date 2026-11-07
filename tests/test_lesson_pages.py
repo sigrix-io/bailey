@@ -7,10 +7,12 @@ console imports (``pageant pack lessons/pages.py``), and writes each lesson's Yo
 the same page and Bailey's ``PRODUCT`` (``pageant youtube-text lessons/pages.py``). How it writes
 them is Pageant's, and held there; what is Bailey's is held here.
 
-Every page is one the import takes (the format is Sigrix's, and the rules it enforces are
-restated where they are checked), each lesson file names its page, every page carries the tag
-the site lists the lessons by and says what in its lesson is scripted, each names its own video,
-the README links the lessons in their path's order, and every upload is one YouTube takes.
+Every page, and the path that lists them, is one the import takes: each is held to the format's
+JSON Schema as Pageant ships it (``pageant.schema``, and its ``SPEC.md`` in words), never to a copy
+of the import's rules kept here, which would drift from them without failing. The rest is
+Bailey's own: each lesson file names its page, every page carries the tag the site lists the
+lessons by, opens with what its lesson shows and says what in it is scripted, each names its own
+video, the README links the lessons in their path's order, and every upload is one YouTube takes.
 """
 
 from __future__ import annotations
@@ -24,16 +26,11 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from pageant import bundle, youtube
+from pageant import bundle, schema, youtube
 
 ROOT = Path(__file__).resolve().parents[1]
 LESSONS = ROOT / "lessons"
 
-# What Sigrix's Learn import refuses a page for, by its own rules and the Learn editor's: a slug
-# that is not lowercase words joined by hyphens, a missing title or summary, a category it does not
-# have. The categories are the Learn index's.
-SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-CATEGORIES = {"foundations", "tutorials", "patterns", "seller", "buyer", "case"}
 #: A recording's chapters as Pageant writes them for a YouTube description: lesson 1's.
 CHAPTERS = "0:00 Finding your way\n0:19 1 · Choose your AI\n0:38 2 · Install a solution\n1:20 3 · Give it documents\n"
 
@@ -52,16 +49,15 @@ def _every_page(pages: ModuleType) -> list[bundle.Page]:
     return [value for value in vars(pages).values() if isinstance(value, bundle.Page)]
 
 
-def test_every_page_is_one_the_import_takes(pages: ModuleType) -> None:
+def test_every_page_and_the_path_are_ones_the_import_takes(pages: ModuleType) -> None:
+    """Held to the schemas of the Pageant ``lessons/requirements.txt`` pins: each page, the path, and then the two
+    together, as ``pageant pack`` holds them before it zips anything (``bundle.check``, which gives every reason)."""
+
+    lesson = schema.load(schema.LESSON)
     for page in pages.PATH.lessons:
-        data = bundle.page_json(page)
-        assert data["format"] == "sigrix-lesson/1"
-        assert SLUG.match(data["slug"]) and len(data["slug"]) <= 120, data["slug"]
-        assert data["title"].strip() and len(data["title"]) <= 200
-        assert data["summary"].strip() and len(data["summary"]) <= 600
-        assert data["category"] in CATEGORIES
-        assert data["tags"] and all(isinstance(tag, str) and tag for tag in data["tags"])
-        assert data["body_markdown"].startswith("## What you will see\n")
+        assert schema.problems(bundle.page_json(page), lesson) == [], page.slug
+    assert schema.problems(bundle.path_json(pages.PATH), schema.load(schema.PATH)) == []
+    bundle.check(pages.PATH)
 
 
 def test_the_path_lists_every_page_once_and_no_two_share_a_folder_or_an_address(pages: ModuleType) -> None:
@@ -101,6 +97,11 @@ def test_every_page_carries_the_tag_sigrix_lists_the_lessons_by(pages: ModuleTyp
     assert pages.TAG == "bailey"
     for page in pages.PATH.lessons:
         assert bundle.page_json(page)["tags"] == ["bailey", "video"], page.slug
+
+
+def test_every_page_opens_with_what_its_lesson_shows(pages: ModuleType) -> None:
+    for page in pages.PATH.lessons:
+        assert bundle.page_json(page)["body_markdown"].startswith("## What you will see\n"), page.slug
 
 
 def test_every_page_says_what_in_its_lesson_is_scripted(pages: ModuleType) -> None:
