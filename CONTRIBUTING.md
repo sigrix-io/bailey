@@ -123,6 +123,13 @@ for the tests and for trying an app by hand.
 Each doctor check takes what it probes as an argument, so a test can hand it a
 machine that lacks something. A new check comes with a test on both sides.
 
+A test starts Bailey as a person does (`tests/running.py`), and one that does not
+stop within 30 seconds of being told to fails with every thread's stack, then is
+ended. A change to how Bailey starts or stops also gets a run of
+`python scripts/stop_soak.py`, which starts and stops it a few hundred times. CI's
+`stop-soak.yml` runs it on a macOS runner, where the one stop that ever hung was,
+by hand or on a pull request that changes it.
+
 The image, `sigrix/bailey`, is built from a wheel, never from the checkout:
 `python -m build --wheel`, then `docker build --tag bailey:dev .`. Then
 `python scripts/check_launch.py --image bailey:dev` opens the app in it as CI does

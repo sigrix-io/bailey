@@ -1674,12 +1674,25 @@ def bind_listener(port: int, address: str = LOOPBACK) -> socket.socket:
     return listener
 
 
-class _Stopped(BaseException):
-    """A terminate signal, turned into an exception so the store is closed on the way out."""
+#: The signals that stop Bailey: Ctrl+C, and the terminate signal ``kill`` or a service manager sends.
+STOP_SIGNALS = tuple(getattr(signal, name) for name in ("SIGINT", "SIGTERM") if hasattr(signal, name))
 
 
-def _stop_on_terminate(signum: int, frame: FrameType | None) -> None:
-    raise _Stopped
+def _stop_on_signal(server: uvicorn.Server) -> Callable[[int, FrameType | None], None]:
+    """A handler for :data:`STOP_SIGNALS` that asks ``server`` to shut down, as uvicorn's own does.
+
+    It sets the flag uvicorn reads, and returns. A handler that raised instead would raise
+    wherever the main thread happened to be when the signal came. Inside a weakref callback,
+    such an exception is reported and dropped, so the stop is lost, and what the interrupted
+    code held stays held: once that was importlib's lock, taken by the callback a module lock
+    leaves behind, and the thread loading the agent core waited on it for ever while Bailey
+    went on serving.
+    """
+
+    def ask_to_stop(signum: int, frame: FrameType | None) -> None:
+        server.should_exit = True
+
+    return ask_to_stop
 
 
 def _warm_up() -> None:
@@ -1756,36 +1769,36 @@ def serve(
             build_app(state), log_level="warning", access_log=False, lifespan="on", server_header=False
         )
         server = uvicorn.Server(config)
-        out.write(
-            f"Bailey {__version__} is running on this computer at {address}\n"
-            f"Open it at {launch}\n"
-            "That address carries this session's token, which changes each time Bailey starts.\n"
-            + (
-                f"This is a container: publish its port {bound} to the same port on this computer's own "
-                f"address, as docker run -p 127.0.0.1:{bound}:{bound} does.\n"
-                if container
-                else "Press Ctrl+C to stop.\n"
-            )
-        )
-        out.flush()
-        if open_browser and not container:
-            threading.Thread(target=_open_when_ready, args=(server, launch, out), daemon=True).start()
-        threading.Thread(target=_warm_up, daemon=True).start()
-        # uvicorn shuts down gracefully on Ctrl+C or a terminate signal, then raises the
-        # signal again: Ctrl+C as KeyboardInterrupt, and a terminate signal through the
-        # handler in place before it started, which by default ends the process at once
-        # and skips closing the store. This handler makes both end the same way.
-        previous = None
-        if threading.current_thread() is threading.main_thread() and hasattr(signal, "SIGTERM"):
-            previous = signal.signal(signal.SIGTERM, _stop_on_terminate)
+        # Ctrl+C and a terminate signal ask the server to shut down from here on, before Bailey
+        # says it is running, so a stop that comes the moment it does still closes the store,
+        # rather than ending the process where it stands. uvicorn puts its own handler in place
+        # while it serves, which does the same, and hands each signal it caught back to this one.
+        previous = {}
+        if threading.current_thread() is threading.main_thread():
+            stop = _stop_on_signal(server)
+            previous = {number: signal.signal(number, stop) for number in STOP_SIGNALS}
         try:
+            out.write(
+                f"Bailey {__version__} is running on this computer at {address}\n"
+                f"Open it at {launch}\n"
+                "That address carries this session's token, which changes each time Bailey starts.\n"
+                + (
+                    f"This is a container: publish its port {bound} to the same port on this computer's own "
+                    f"address, as docker run -p 127.0.0.1:{bound}:{bound} does.\n"
+                    if container
+                    else "Press Ctrl+C to stop.\n"
+                )
+            )
+            out.flush()
+            if open_browser and not container:
+                threading.Thread(target=_open_when_ready, args=(server, launch, out), daemon=True).start()
+            threading.Thread(target=_warm_up, daemon=True).start()
             server.run(sockets=[listener])
-        except (KeyboardInterrupt, _Stopped):
-            pass
         finally:
             listener.close()
-            if previous is not None:
-                signal.signal(signal.SIGTERM, previous)
+            for number, handler in previous.items():
+                if handler is not None:  # None: a handler not installed from Python, which cannot be put back
+                    signal.signal(number, handler)
         out.write("Bailey has stopped.\n")
         out.flush()
         return 0
