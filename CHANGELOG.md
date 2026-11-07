@@ -6,6 +6,12 @@ described in `VERSIONING.md`.
 
 ## [Unreleased]
 
+## [0.1.3] — 2026-11-07
+
+A fix release. Ctrl+C or a terminate signal that came at the wrong moment could be lost, and
+leave Bailey running; one that came the moment it said it was running ended it without
+closing its store. Every stop once it says it is running now shuts it down cleanly.
+
 ### Added
 
 - `scripts/stop_soak.py` starts Bailey and stops it at once, a few hundred times, and fails on a
