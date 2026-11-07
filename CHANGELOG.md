@@ -6,6 +6,22 @@ described in `VERSIONING.md`.
 
 ## [Unreleased]
 
+### Added
+
+- `scripts/stop_soak.py` starts Bailey and stops it at once, a few hundred times, and counts the
+  stops that do not end within 30 seconds. Every other stop comes at the ready line, and the
+  rest at a random moment in the three seconds after it, while the agent core can still be
+  loading. `stop-soak.yml` runs it by hand on a macOS or a Linux runner, and on a pull request
+  that changes it. Once, on a macOS runner, a Bailey under test had not exited 30 seconds after
+  it was told to stop, and the cause is not known.
+
+### Changed
+
+- A test whose Bailey does not stop in time, or never prints its address, now fails with the
+  stack of every thread in it, which `faulthandler` writes when the test sends it SIGABRT, and
+  ends it, so no Bailey is left running after the test. The soak also prints each thread's
+  native stack, with `sample`, where the computer has it.
+
 ## [0.1.2] — 2026-11-07
 
 A release that changes nothing in the app. The package now says which computers `uvx`, `pipx`

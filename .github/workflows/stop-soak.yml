@@ -1,0 +1,40 @@
+name: Stop soak
+
+# Bailey started and stopped at once, a few hundred times on one runner, counting the stops that
+# do not end in time (scripts/stop_soak.py). Once, on a macOS runner, a Bailey under test had not
+# exited 30 seconds after it was told to stop, and the cause was not found; a stuck stop prints
+# where each of its threads was. By hand, on either runner and for any count, and on a pull
+# request that changes the soak itself.
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: The runner to start and stop Bailey on
+        type: choice
+        options: [macos-latest, ubuntu-latest]
+        default: macos-latest
+      times:
+        description: How many times to start and stop it
+        default: "300"
+  pull_request:
+    paths:
+      - .github/workflows/stop-soak.yml
+      - scripts/stop_soak.py
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    runs-on: ${{ inputs.runner || 'macos-latest' }}
+    timeout-minutes: 120
+    steps:
+      # The CI test job's setup: checks out, installs the Python and pip-installs `-e .[dev]`.
+      - uses: sigrix-io/actions/setup-python-project@765103f1c9d89e019dcaea72a78eed2577b30ae1 # v1.0.0
+        with:
+          python-version: "3.13"
+      - name: Start and stop Bailey
+        env:
+          # From the dispatch form, or the default on a pull request; read here, never pasted into the script.
+          TIMES: ${{ inputs.times || '300' }}
+        run: python scripts/stop_soak.py --times "$TIMES"
