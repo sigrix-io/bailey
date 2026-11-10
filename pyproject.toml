@@ -49,10 +49,10 @@ dependencies = [
     "uvicorn>=0.54",
     "keyring>=25.7",
     "cryptography>=45",
-    "pydantic-ai-slim[anthropic,openai,mcp]==2.63.0",
-    "anthropic==2.3.0",
-    "openai==3.41.0",
-    "fastmcp-slim==4.1.4",
+    "pydantic-ai-slim[anthropic,openai,mcp]==2.66.0",
+    "anthropic==2.6.0",
+    "openai==3.46.0",
+    "fastmcp-slim==4.1.6",
     "mcp==2.3.0",
     "markitdown[pdf,docx]==0.1.9",
     "fastembed==0.9.1",
@@ -75,7 +75,7 @@ dev = [
     "httpx2>=2.16",
     # The runner an app's environment gets, and what its execution layer imports, so the
     # tests run a real runner. Never a dependency of Bailey itself (bailey.apps).
-    "sigrix-runtime==0.1.0",
+    "sigrix-runtime==0.2.0",
     "pyyaml>=6.0",
     "python-dotenv>=1.2",
 ]
