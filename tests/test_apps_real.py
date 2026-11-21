@@ -59,7 +59,10 @@ def test_the_real_crewai_runs_the_app_on_the_persons_key(client: TestClient) -> 
     assert panel["apps"][0]["environment"] == "ready", panel["apps"][0]["why"]
     streamed = client.post(f"{app}/postern/v0/stream", headers=AUTH, json={"inputs": {"prompt": NOTES}})
     events = _events(streamed.text)
-    assert [name for name, _ in events] == ["start", "step", "step", "done"], streamed.text[-2000:]
+    # A runner may send events of its own between these (0.4.0's org.sigrix.usage is a running
+    # total after each model call); a client skips the names it does not know, as Gatehouse does.
+    sent = [name for name, _ in events if not name.startswith("org.")]
+    assert sent == ["start", "step", "step", "done"], streamed.text[-2000:]
     assert [payload["name"] for name, payload in events if name == "step"] == ["pick_highlights", "write_newsletter"]
     assert "Newsletter Writer did:" in events[-1][1]["output"]["value"]
     assert emulator.REQUESTS and {request["key"] for request in emulator.REQUESTS} == {KEY}

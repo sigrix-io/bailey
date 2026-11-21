@@ -46,7 +46,7 @@ from bailey.solutions import App
 from bailey.tools import NETWORK_VARIABLES
 
 #: The runner every app's environment gets, pinned as the Sigrix platform pins it.
-RUNTIME_REQUIREMENT = "sigrix-runtime==0.1.0"
+RUNTIME_REQUIREMENT = "sigrix-runtime==0.4.0"
 #: What an environment downloads, in MB: CrewAI's wheels, as the platform measures them.
 ENVIRONMENT_DOWNLOAD_MB = 250
 #: What it takes on disk once installed, in MB: measured for the fixture's crew
