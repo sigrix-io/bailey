@@ -46,3 +46,12 @@ updates:
       docker-images:
         patterns:
           - "*"
+    # The digests move; the Python tag does not. The image runs a Python the test matrix in
+    # ci.yml runs (tests/test_image.py), and a newer one is a decision to make with that matrix
+    # and the classifiers in pyproject.toml, not a weekly bump: 3.13 to 3.15 broke the build in
+    # pip, because markitdown 0.1.9 installs on nothing newer than 3.14.
+    ignore:
+      - dependency-name: "python"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"

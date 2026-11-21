@@ -156,6 +156,17 @@ def test_ci_builds_and_opens_the_image_and_its_gate_waits_for_it() -> None:
     assert set(jobs["image"]["strategy"]["matrix"]["runner"]) == {"ubuntu-latest", "ubuntu-24.04-arm"}
 
 
+def test_the_image_runs_a_python_the_test_jobs_run() -> None:
+    """Dependabot's bump of the tag to 3.15 built to a pip error naming markitdown, not the tag."""
+
+    (base,) = [rest for keyword, rest in _instructions() if keyword == "FROM" and rest.startswith("python:")]
+    found = re.match(r"python:(\d+\.\d+)(?!\d)", base)
+    assert found, base
+    matrix = _workflow("ci.yml")["jobs"]["test"]["strategy"]["matrix"]
+    tested = {*matrix["python-version"], *(entry["python-version"] for entry in matrix.get("include", []))}
+    assert found.group(1) in tested, f"{base} is a Python no test job runs; they run {sorted(tested)}"
+
+
 def test_the_release_opens_the_app_it_published_to_pypi() -> None:
     steps = _workflow("release.yml")["jobs"]["verify"]["steps"]
     assert any("check_launch.py" in step.get("run", "") and "--command" in step.get("run", "") for step in steps)
