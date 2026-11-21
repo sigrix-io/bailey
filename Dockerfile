@@ -18,7 +18,7 @@
 
 FROM node:26-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS node
 
-FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
+FROM python:3.13-slim-trixie@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1
 
 LABEL org.opencontainers.image.title="Bailey" \
       org.opencontainers.image.description="An open-source AI assistant that runs ready-made solutions, with your own AI key." \
